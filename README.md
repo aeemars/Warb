@@ -3,7 +3,7 @@
 
 An AI-powered engine that understands Warba Bank's corporate clients and proactively surfaces smart product/service suggestions to Relationship Managers, shifting the RM role from reactive admin to proactive advisory.
 
-## ✨ What It Does
+##  What It Does
 
 - **Analyzes corporate client profiles** against Warba Bank's Shariah-compliant product catalog using AI (Claude Sonnet via OpenRouter)
 - **Proactively identifies opportunities** with confidence scores, urgency ratings, and actionable next steps
@@ -32,7 +32,7 @@ An AI-powered engine that understands Warba Bank's corporate clients and proacti
 | AI Integration | OpenRouter API → Claude Sonnet 3.5 |
 | Frontend | Vanilla HTML/CSS/JS + Chart.js |
 
-## 🚀 Quick Start
+##  Quick Start
 
 ### Prerequisites
 - Go 1.21+
@@ -64,7 +64,7 @@ The server starts at **http://localhost:8080** with a seeded database of 20 real
 | `DB_PATH` | `./data/opportunity.db` | SQLite database path |
 
 
-## 🔌 API Endpoints
+## API Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -77,7 +77,7 @@ The server starts at **http://localhost:8080** with a seeded database of 20 real
 | `GET` | `/api/portfolio/summary` | Portfolio health metrics |
 | `GET` | `/api/products` | Warba Bank product catalog |
 
-## 🕌 Shariah Compliance
+## Shariah Compliance
 
 All product recommendations are limited to Warba Bank's Shariah-compliant offerings:
 - **Murabaha** (cost-plus & deferred sale)
@@ -90,7 +90,7 @@ All product recommendations are limited to Warba Bank's Shariah-compliant offeri
 
 The AI system prompt enforces these constraints and every suggestion includes Shariah governance notes.
 
-## 📊 Synthetic Data
+## Synthetic Data
 
 The MVP includes 20 realistic Kuwaiti corporate client profiles across 14 industries, with:
 - Full interaction histories (meetings, calls, transactions)
