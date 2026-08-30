@@ -1,0 +1,55 @@
+# Environment and Secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Compiled Binaries and Output
+bin/
+dist/
+server
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Database & Runtime Data
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Logs & Temporary Files
+*.log
+tmp/
+temp/
+
+# Go Coverage and Test Artifacts
+*.coverage
+coverage.out
+profile.out
+
+# IDE and Editor Specific
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+
+# OS Generated Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
