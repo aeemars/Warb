@@ -5,7 +5,7 @@ An AI-powered engine that understands Warba Bank's corporate clients and proacti
 
 ##  What It Does
 
-- **Analyzes corporate client profiles** against Warba Bank's Shariah-compliant product catalog using AI (Claude Sonnet via OpenRouter)
+- **Analyzes corporate client profiles** against Warba Bank's Shariah-compliant product catalog using AI (InclusionAI Ling 3.0 Flash Fin via OpenRouter)
 - **Proactively identifies opportunities** with confidence scores, urgency ratings, and actionable next steps
 - **Ensures Shariah compliance** — every suggestion includes Islamic finance governance notes
 - **Provides a premium dashboard** for RMs to explore clients, review AI suggestions, and manage their opportunity pipeline
@@ -29,7 +29,7 @@ An AI-powered engine that understands Warba Bank's corporate clients and proacti
 |-----------|-----------|
 | Backend API | Go (stdlib `net/http`) |
 | Database | SQLite (pure Go via `modernc.org/sqlite`) |
-| AI Integration | OpenRouter API → Claude Sonnet 3.5 |
+| AI Integration | OpenRouter API → InclusionAI Ling 3.0 Flash Fin |
 | Frontend | Vanilla HTML/CSS/JS + Chart.js |
 
 ##  Quick Start
@@ -60,7 +60,7 @@ The server starts at **http://localhost:8080** with a seeded database of 20 real
 |----------|---------|-------------|
 | `OPENROUTER_API_KEY` | (required) | Your OpenRouter API key |
 | `PORT` | `8080` | Server port |
-| `AI_MODEL` | `anthropic/claude-3.5-sonnet` | AI model slug |
+| `AI_MODEL` | `inclusionai/ling-3.0-flash-fin:free` | AI model slug |
 | `DB_PATH` | `./data/opportunity.db` | SQLite database path |
 
 

@@ -104,7 +104,7 @@ func (e *Engine) AnalyzeClient(ctx context.Context, clientID string) ([]models.O
 			{Role: openai.ChatMessageRoleUser, Content: prompt},
 		},
 		Temperature: 0.3, // Low temperature for consistent, analytical output
-		MaxTokens:   2000,
+		MaxTokens:   8000,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("AI API call failed: %w", err)
@@ -114,7 +114,11 @@ func (e *Engine) AnalyzeClient(ctx context.Context, clientID string) ([]models.O
 		return nil, fmt.Errorf("no response from AI model")
 	}
 
-	content := resp.Choices[0].Message.Content
+	choice := resp.Choices[0]
+	content := choice.Message.Content
+	if strings.TrimSpace(content) == "" {
+		return nil, fmt.Errorf("AI returned empty content (finish_reason: %s). Increase token budget or switch model", choice.FinishReason)
+	}
 	log.Printf("[Engine] AI response for %s: %s", clientID, truncate(content, 200))
 
 	// Parse AI suggestions
@@ -207,7 +211,7 @@ func (e *Engine) ScanPortfolio(ctx context.Context) ([]models.Opportunity, error
 			{Role: openai.ChatMessageRoleUser, Content: prompt},
 		},
 		Temperature: 0.3,
-		MaxTokens:   3000,
+		MaxTokens:   8000,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("AI API call failed: %w", err)
@@ -217,7 +221,11 @@ func (e *Engine) ScanPortfolio(ctx context.Context) ([]models.Opportunity, error
 		return nil, fmt.Errorf("no response from AI model")
 	}
 
-	content := resp.Choices[0].Message.Content
+	choice := resp.Choices[0]
+	content := choice.Message.Content
+	if strings.TrimSpace(content) == "" {
+		return nil, fmt.Errorf("AI returned empty content (finish_reason: %s). Increase token budget or switch model", choice.FinishReason)
+	}
 	log.Printf("[Engine] Portfolio scan response: %s", truncate(content, 300))
 
 	// Parse portfolio suggestions
@@ -279,15 +287,47 @@ func parseAISuggestions(content string) ([]models.AIOpportunitySuggestion, error
 	return suggestions, nil
 }
 
-// cleanJSON strips markdown code blocks and whitespace from AI output.
+// cleanJSON strips reasoning/thinking tags, markdown code blocks, and isolates the JSON array.
 func cleanJSON(s string) string {
 	s = strings.TrimSpace(s)
-	// Remove markdown code fences
-	s = strings.TrimPrefix(s, "```json")
-	s = strings.TrimPrefix(s, "```")
-	s = strings.TrimSuffix(s, "```")
+
+	// Remove thinking tags if present
+	for {
+		start := strings.Index(s, "<think>")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(s, "</think>")
+		if end == -1 {
+			s = s[start+7:]
+			break
+		}
+		s = s[:start] + s[end+8:]
+	}
+
+	// Remove markdown code fences if present
+	if start := strings.Index(s, "```json"); start != -1 {
+		rest := s[start+7:]
+		if end := strings.Index(rest, "```"); end != -1 {
+			s = rest[:end]
+		}
+	} else if start := strings.Index(s, "```"); start != -1 {
+		rest := s[start+3:]
+		if end := strings.Index(rest, "```"); end != -1 {
+			s = rest[:end]
+		}
+	}
+
 	s = strings.TrimSpace(s)
-	return s
+
+	// Isolate JSON array from first '[' to last ']'
+	startIdx := strings.Index(s, "[")
+	endIdx := strings.LastIndex(s, "]")
+	if startIdx != -1 && endIdx != -1 && endIdx > startIdx {
+		s = s[startIdx : endIdx+1]
+	}
+
+	return strings.TrimSpace(s)
 }
 
 // formatAmount formats a KWD amount with commas.
