@@ -1,7 +1,5 @@
-# Warba Bank — Proactive Client Opportunity Engine
+# Warba — Proactive Client Opportunity Engine
 
-> **Track 4: Proactive Client Opportunity Engine**  
-> Ignyte Corporate Banking AI Challenge 2026
 
 An AI-powered engine that understands Warba Bank's corporate clients and proactively surfaces smart product/service suggestions to Relationship Managers — shifting the RM role from reactive admin to proactive advisory.
 
@@ -44,7 +42,7 @@ An AI-powered engine that understands Warba Bank's corporate clients and proacti
 
 ```bash
 # Clone
-git clone <repo-url> && cd Banking-AI
+git clone <repo-url> && cd Warb
 
 # Configure
 cp .env.example .env

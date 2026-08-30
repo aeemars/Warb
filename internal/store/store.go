@@ -22,9 +22,12 @@ func New(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("opening database: %w", err)
 	}
 
-	// Enable WAL mode for better concurrency
+	// Enable WAL mode for better concurrency and busy timeout
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		return nil, fmt.Errorf("setting WAL mode: %w", err)
+	}
+	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		return nil, fmt.Errorf("setting busy timeout: %w", err)
 	}
 	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
 		return nil, fmt.Errorf("enabling foreign keys: %w", err)
@@ -456,45 +459,67 @@ func (s *Store) UpdateOpportunityStatus(id string, status models.OpportunityStat
 func (s *Store) GetPortfolioSummary() (*models.PortfolioSummary, error) {
 	summary := &models.PortfolioSummary{
 		UrgencyBreakdown: make(map[string]int),
+		TopIndustries:    []models.IndustryStat{},
+		ProductBreakdown: []models.ProductStat{},
 	}
 
 	// Total clients
-	s.db.QueryRow("SELECT COUNT(*) FROM clients").Scan(&summary.TotalClients)
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM clients").Scan(&summary.TotalClients); err != nil {
+		return nil, fmt.Errorf("counting clients: %w", err)
+	}
 
 	// Opportunity counts
-	s.db.QueryRow("SELECT COUNT(*) FROM opportunities").Scan(&summary.TotalOpportunities)
-	s.db.QueryRow("SELECT COUNT(*) FROM opportunities WHERE status = 'New'").Scan(&summary.NewOpportunities)
-	s.db.QueryRow("SELECT COUNT(*) FROM opportunities WHERE status = 'Accepted'").Scan(&summary.AcceptedOpps)
-	s.db.QueryRow("SELECT COUNT(*) FROM opportunities WHERE status = 'Converted'").Scan(&summary.ConvertedOpps)
-	s.db.QueryRow("SELECT COUNT(*) FROM opportunities WHERE status = 'Dismissed'").Scan(&summary.DismissedOpps)
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM opportunities").Scan(&summary.TotalOpportunities); err != nil {
+		return nil, fmt.Errorf("counting opportunities: %w", err)
+	}
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM opportunities WHERE status = 'New'").Scan(&summary.NewOpportunities); err != nil {
+		return nil, fmt.Errorf("counting new opportunities: %w", err)
+	}
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM opportunities WHERE status = 'Accepted'").Scan(&summary.AcceptedOpps); err != nil {
+		return nil, fmt.Errorf("counting accepted opportunities: %w", err)
+	}
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM opportunities WHERE status = 'Converted'").Scan(&summary.ConvertedOpps); err != nil {
+		return nil, fmt.Errorf("counting converted opportunities: %w", err)
+	}
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM opportunities WHERE status = 'Dismissed'").Scan(&summary.DismissedOpps); err != nil {
+		return nil, fmt.Errorf("counting dismissed opportunities: %w", err)
+	}
 
 	// Average confidence
-	s.db.QueryRow("SELECT COALESCE(AVG(confidence), 0) FROM opportunities WHERE status != 'Dismissed'").Scan(&summary.AvgConfidence)
+	if err := s.db.QueryRow("SELECT COALESCE(AVG(confidence), 0) FROM opportunities WHERE status != 'Dismissed'").Scan(&summary.AvgConfidence); err != nil {
+		return nil, fmt.Errorf("getting avg confidence: %w", err)
+	}
 
 	// Pipeline value (sum of max product amounts for active opportunities)
-	s.db.QueryRow(`
+	if err := s.db.QueryRow(`
 		SELECT COALESCE(SUM(p.max_amount_kwd * o.confidence), 0)
 		FROM opportunities o
 		JOIN products p ON p.id = o.product_id
 		WHERE o.status IN ('New', 'Accepted', 'Reviewed')
-	`).Scan(&summary.PipelineValueKWD)
+	`).Scan(&summary.PipelineValueKWD); err != nil {
+		return nil, fmt.Errorf("getting pipeline value: %w", err)
+	}
 
 	// Top industries
 	rows, err := s.db.Query(`
-		SELECT c.industry, COUNT(*) as cnt, SUM(c.revenue_kwd) as rev
+		SELECT c.industry, COUNT(*) as cnt, COALESCE(SUM(c.revenue_kwd), 0) as rev
 		FROM clients c
 		GROUP BY c.industry
 		ORDER BY rev DESC
 		LIMIT 5
 	`)
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var is models.IndustryStat
-			rows.Scan(&is.Industry, &is.Count, &is.Revenue)
-			summary.TopIndustries = append(summary.TopIndustries, is)
-		}
+	if err != nil {
+		return nil, fmt.Errorf("querying top industries: %w", err)
 	}
+	for rows.Next() {
+		var is models.IndustryStat
+		if err := rows.Scan(&is.Industry, &is.Count, &is.Revenue); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scanning industry stat: %w", err)
+		}
+		summary.TopIndustries = append(summary.TopIndustries, is)
+	}
+	rows.Close()
 
 	// Urgency breakdown
 	rows2, err := s.db.Query(`
@@ -502,15 +527,19 @@ func (s *Store) GetPortfolioSummary() (*models.PortfolioSummary, error) {
 		WHERE status NOT IN ('Dismissed', 'Converted')
 		GROUP BY urgency
 	`)
-	if err == nil {
-		defer rows2.Close()
-		for rows2.Next() {
-			var urg string
-			var cnt int
-			rows2.Scan(&urg, &cnt)
-			summary.UrgencyBreakdown[urg] = cnt
-		}
+	if err != nil {
+		return nil, fmt.Errorf("querying urgency breakdown: %w", err)
 	}
+	for rows2.Next() {
+		var urg string
+		var cnt int
+		if err := rows2.Scan(&urg, &cnt); err != nil {
+			rows2.Close()
+			return nil, fmt.Errorf("scanning urgency stat: %w", err)
+		}
+		summary.UrgencyBreakdown[urg] = cnt
+	}
+	rows2.Close()
 
 	// Product breakdown
 	rows3, err := s.db.Query(`
@@ -521,14 +550,18 @@ func (s *Store) GetPortfolioSummary() (*models.PortfolioSummary, error) {
 		GROUP BY o.product_id
 		ORDER BY cnt DESC
 	`)
-	if err == nil {
-		defer rows3.Close()
-		for rows3.Next() {
-			var ps models.ProductStat
-			rows3.Scan(&ps.ProductID, &ps.ProductName, &ps.Count)
-			summary.ProductBreakdown = append(summary.ProductBreakdown, ps)
-		}
+	if err != nil {
+		return nil, fmt.Errorf("querying product breakdown: %w", err)
 	}
+	for rows3.Next() {
+		var ps models.ProductStat
+		if err := rows3.Scan(&ps.ProductID, &ps.ProductName, &ps.Count); err != nil {
+			rows3.Close()
+			return nil, fmt.Errorf("scanning product stat: %w", err)
+		}
+		summary.ProductBreakdown = append(summary.ProductBreakdown, ps)
+	}
+	rows3.Close()
 
 	return summary, nil
 }
