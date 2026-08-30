@@ -1,7 +1,7 @@
-# Warb — Proactive Client Opportunity Engine
+# Warb: Proactive Client Opportunity Engine
 
 
-An AI-powered engine that understands Warba Bank's corporate clients and proactively surfaces smart product/service suggestions to Relationship Managers — shifting the RM role from reactive admin to proactive advisory.
+An AI-powered engine that understands Warba Bank's corporate clients and proactively surfaces smart product/service suggestions to Relationship Managers, shifting the RM role from reactive admin to proactive advisory.
 
 ## ✨ What It Does
 
