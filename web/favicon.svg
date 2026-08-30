@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F5D77F" />
+      <stop offset="45%" stop-color="#D4A853" />
+      <stop offset="100%" stop-color="#9E7822" />
+    </linearGradient>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#151D2E" />
+      <stop offset="100%" stop-color="#070B14" />
+    </linearGradient>
+    <filter id="goldGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#D4A853" flood-opacity="0.35" />
+    </filter>
+  </defs>
+
+  <!-- Background Base -->
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#bgGrad)" stroke="#D4A853" stroke-width="1.5" stroke-opacity="0.4" />
+
+  <!-- Inner Subtle Hexagon / Grid Element -->
+  <path d="M32 8 L52 19.5 L52 44.5 L32 56 L12 44.5 L12 19.5 Z" fill="none" stroke="#D4A853" stroke-width="0.75" stroke-opacity="0.2" stroke-dasharray="3 2" />
+
+  <!-- Warba 'W' Modern Geometric Emblem -->
+  <g filter="url(#goldGlow)">
+    <path d="M16 19 
+             L22.5 45 
+             L32 30 
+             L41.5 45 
+             L48 19 
+             L41.5 19 
+             L37.5 35.5 
+             L32 26.5 
+             L26.5 35.5 
+             L22.5 19 
+             Z" 
+          fill="url(#goldGrad)" />
+  </g>
+
+  <!-- Subtle AI / Opportunity Sparkle Node -->
+  <circle cx="32" cy="18" r="2.2" fill="#F5D77F" filter="url(#goldGlow)" />
+</svg>

@@ -24,6 +24,8 @@ func NewHandlers(s *store.Store, e *engine.Engine) *Handlers {
 
 // RegisterRoutes registers all API routes on the given mux.
 func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("/api", h.handleAPIRoot)
+	mux.HandleFunc("/api/", h.handleAPIRoot)
 	mux.HandleFunc("/api/clients", h.handleListClients)
 	mux.HandleFunc("/api/clients/", h.handleClientRoutes)
 	mux.HandleFunc("/api/opportunities", h.handleListOpportunities)
@@ -31,6 +33,28 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/portfolio/scan", h.handlePortfolioScan)
 	mux.HandleFunc("/api/portfolio/summary", h.handlePortfolioSummary)
 	mux.HandleFunc("/api/products", h.handleListProducts)
+}
+
+func (h *Handlers) handleAPIRoot(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/api" && r.URL.Path != "/api/" {
+		h.notFound(w, "Endpoint not found")
+		return
+	}
+	h.jsonOK(w, map[string]interface{}{
+		"name":        "Warba Bank — Proactive Client Opportunity Engine API",
+		"status":      "online",
+		"dashboard":   "/",
+		"endpoints": map[string]string{
+			"GET  /api/clients":            "List all clients",
+			"GET  /api/clients/:id":        "Get single client with history and product holdings",
+			"POST /api/clients/:id/analyze": "Trigger AI opportunity analysis for a client",
+			"GET  /api/opportunities":     "List generated opportunities (filters: status, urgency, client_id)",
+			"PATCH /api/opportunities/:id": "Update opportunity status (New, Reviewed, Accepted, Dismissed, Converted)",
+			"POST /api/portfolio/scan":     "Trigger AI scan across all portfolio clients",
+			"GET  /api/portfolio/summary":  "Get portfolio metrics and breakdown stats",
+			"GET  /api/products":           "List Warba Bank Shariah-compliant product catalog",
+		},
+	})
 }
 
 // --- Client Handlers ---
