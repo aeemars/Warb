@@ -938,9 +938,34 @@
         el.innerHTML = opps.map(renderOppCard).join('');
     }
 
+    function renderOppActions(opp) {
+        let actionButtons = '';
+        if (opp.status === 'New') {
+            actionButtons = `
+                <button class="btn btn-sm btn-success" onclick="updateOppStatus('${opp.id}', 'Accepted', this)">✓ Accept</button>
+                <button class="btn btn-sm btn-secondary" onclick="updateOppStatus('${opp.id}', 'Reviewed', this)">Mark Reviewed</button>
+                <button class="btn btn-sm btn-danger" onclick="updateOppStatus('${opp.id}', 'Dismissed', this)">✕ Dismiss</button>
+            `;
+        } else if (opp.status === 'Accepted') {
+            actionButtons = `
+                <button class="btn btn-sm btn-primary" onclick="updateOppStatus('${opp.id}', 'Converted', this)">Mark Converted</button>
+                <button class="btn btn-sm btn-danger" onclick="updateOppStatus('${opp.id}', 'Dismissed', this)">✕ Dismiss</button>
+            `;
+        } else if (opp.status === 'Reviewed') {
+            actionButtons = `
+                <button class="btn btn-sm btn-success" onclick="updateOppStatus('${opp.id}', 'Accepted', this)">✓ Accept</button>
+                <button class="btn btn-sm btn-danger" onclick="updateOppStatus('${opp.id}', 'Dismissed', this)">✕ Dismiss</button>
+            `;
+        }
+        return `
+            ${actionButtons}
+            <span style="font-size:0.72rem;color:var(--text-muted);margin-left:auto">${timeAgo(opp.created_at)}</span>
+        `;
+    }
+
     function renderOppCard(opp) {
         const urgClass = 'urgency-' + (opp.urgency || 'Medium');
-        return `<div class="opp-card ${urgClass}">
+        return `<div class="opp-card ${urgClass}" id="opp-card-${opp.id}" data-id="${opp.id}" data-status="${opp.status}">
             <div class="opp-header">
                 <div class="opp-title-group">
                     <div class="opp-client-name">
@@ -948,7 +973,7 @@
                     </div>
                     <div class="opp-product-name">${opp.product_name || opp.product_id}</div>
                 </div>
-                <div class="opp-meta">
+                <div class="opp-meta" id="opp-meta-${opp.id}">
                     ${statusBadge(opp.status)}
                     ${urgencyBadge(opp.urgency)}
                     ${confidenceMeter(opp.confidence)}
@@ -957,41 +982,87 @@
             <div class="opp-reasoning">${opp.reasoning}</div>
             ${opp.next_action ? `<div class="opp-next-action"><strong>Next Action:</strong> ${opp.next_action}</div>` : ''}
             ${opp.shariah_notes ? `<div class="opp-shariah">${opp.shariah_notes}</div>` : ''}
-            <div class="opp-actions">
-                ${opp.status === 'New' ? `
-                    <button class="btn btn-sm btn-success" onclick="updateOppStatus('${opp.id}', 'Accepted', this)">✓ Accept</button>
-                    <button class="btn btn-sm btn-secondary" onclick="updateOppStatus('${opp.id}', 'Reviewed', this)">Mark Reviewed</button>
-                    <button class="btn btn-sm btn-danger" onclick="updateOppStatus('${opp.id}', 'Dismissed', this)">✕ Dismiss</button>
-                ` : opp.status === 'Accepted' ? `
-                    <button class="btn btn-sm btn-primary" onclick="updateOppStatus('${opp.id}', 'Converted', this)">Mark Converted</button>
-                    <button class="btn btn-sm btn-danger" onclick="updateOppStatus('${opp.id}', 'Dismissed', this)">✕ Dismiss</button>
-                ` : opp.status === 'Reviewed' ? `
-                    <button class="btn btn-sm btn-success" onclick="updateOppStatus('${opp.id}', 'Accepted', this)">✓ Accept</button>
-                    <button class="btn btn-sm btn-danger" onclick="updateOppStatus('${opp.id}', 'Dismissed', this)">✕ Dismiss</button>
-                ` : ''}
-                <span style="font-size:0.72rem;color:var(--text-muted);margin-left:auto">${timeAgo(opp.created_at)}</span>
+            <div class="opp-actions" id="opp-actions-${opp.id}">
+                ${renderOppActions(opp)}
             </div>
         </div>`;
     }
 
     window.updateOppStatus = async function (id, status, btn) {
+        const origBtnHTML = btn ? btn.innerHTML : '';
         try {
-            if (btn) btn.disabled = true;
-            await API.updateOppStatus(id, status);
-            showToast(`Opportunity ${status.toLowerCase()}`, 'success');
-
-            if (state.currentPage === 'opportunities') {
-                renderOpportunities();
-            } else if (state.currentPage === 'dashboard') {
-                renderDashboard();
-            } else if (state.currentPage === 'client') {
-                const hash = window.location.hash.slice(1);
-                const clientId = hash.split('/')[1];
-                if (clientId) loadClientOpportunities(clientId);
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<div class="spinner" style="width:12px;height:12px;border-width:2px;display:inline-block"></div>';
             }
+
+            // Call Backend API
+            await API.updateOppStatus(id, status);
+
+            // Update in local state
+            let updatedOpp = null;
+            if (state.opportunities) {
+                const opp = state.opportunities.find(o => o.id === id);
+                if (opp) {
+                    opp.status = status;
+                    updatedOpp = opp;
+                }
+            }
+
+            if (!updatedOpp) {
+                updatedOpp = { id, status, confidence: 0.85, urgency: 'Medium', created_at: new Date().toISOString() };
+            }
+
+            // Update badge counter
+            const newCount = (state.opportunities || []).filter(o => o.status === 'New').length;
+            updateOppBadge(newCount);
+
+            // Smooth In-Place DOM Update for this specific card
+            const metaEl = $('opp-meta-' + id);
+            const actionsEl = $('opp-actions-' + id);
+            const cardEl = $('opp-card-' + id);
+
+            if (metaEl) {
+                metaEl.innerHTML = `
+                    ${statusBadge(status)}
+                    ${urgencyBadge(updatedOpp.urgency)}
+                    ${confidenceMeter(updatedOpp.confidence)}
+                `;
+            }
+
+            if (actionsEl) {
+                actionsEl.innerHTML = renderOppActions(updatedOpp);
+            }
+
+            if (cardEl) {
+                cardEl.dataset.status = status;
+
+                // If on Opportunities page and filtering by a specific status, smoothly fade out if not matching
+                if (state.currentPage === 'opportunities') {
+                    const activeFilter = $('opp-status-filter')?.value;
+                    if (activeFilter && activeFilter !== status) {
+                        cardEl.style.transition = 'all 0.3s ease';
+                        cardEl.style.opacity = '0';
+                        cardEl.style.transform = 'scale(0.95)';
+                        setTimeout(() => {
+                            cardEl.remove();
+                            const remaining = document.querySelectorAll('#opp-list .opp-card');
+                            if (remaining.length === 0) {
+                                showEmpty($('opp-list'), 'No opportunities match your filters');
+                            }
+                        }, 300);
+                    }
+                }
+            }
+
+            showToast(`Opportunity status updated to "${status}"`, 'success');
+
         } catch (err) {
-            showToast('Failed to update: ' + err.message, 'error');
-            if (btn) btn.disabled = false;
+            showToast('Failed to update status: ' + err.message, 'error');
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = origBtnHTML;
+            }
         }
     };
 
