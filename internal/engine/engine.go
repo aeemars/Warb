@@ -54,9 +54,9 @@ func New(apiKey, model string, s *store.Store) *Engine {
 }
 
 // AnalyzeClient performs AI analysis on a single client and returns opportunity suggestions.
-func (e *Engine) AnalyzeClient(ctx context.Context, clientID string) ([]models.Opportunity, error) {
+func (e *Engine) AnalyzeClient(ctx context.Context, userID, clientID string) ([]models.Opportunity, error) {
 	// Fetch client with full context
-	client, err := e.store.GetClient(clientID)
+	client, err := e.store.GetClient(userID, clientID)
 	if err != nil {
 		return nil, fmt.Errorf("fetching client: %w", err)
 	}
@@ -133,6 +133,7 @@ func (e *Engine) AnalyzeClient(ctx context.Context, clientID string) ([]models.O
 	for _, s := range suggestions {
 		opp := models.Opportunity{
 			ID:           fmt.Sprintf("opp-%s-%s-%d", clientID, s.ProductID, now.UnixMilli()),
+			UserID:       userID,
 			ClientID:     clientID,
 			ClientName:   client.Name,
 			ProductID:    s.ProductID,
@@ -165,8 +166,8 @@ func (e *Engine) AnalyzeClient(ctx context.Context, clientID string) ([]models.O
 }
 
 // ScanPortfolio analyzes all clients and returns prioritized opportunities.
-func (e *Engine) ScanPortfolio(ctx context.Context) ([]models.Opportunity, error) {
-	clients, err := e.store.ListClients()
+func (e *Engine) ScanPortfolio(ctx context.Context, userID string) ([]models.Opportunity, error) {
+	clients, err := e.store.ListClients(userID)
 	if err != nil {
 		return nil, fmt.Errorf("listing clients: %w", err)
 	}
@@ -177,7 +178,7 @@ func (e *Engine) ScanPortfolio(ctx context.Context) ([]models.Opportunity, error
 	var clientSummaries []string
 	for _, c := range clients {
 		// Fetch full client data
-		full, err := e.store.GetClient(c.ID)
+		full, err := e.store.GetClient(userID, c.ID)
 		if err != nil || full == nil {
 			continue
 		}
@@ -241,6 +242,7 @@ func (e *Engine) ScanPortfolio(ctx context.Context) ([]models.Opportunity, error
 	for _, s := range portfolioSuggestions {
 		opp := models.Opportunity{
 			ID:           fmt.Sprintf("opp-%s-%s-%d", s.ClientID, s.ProductID, now.UnixMilli()),
+			UserID:       userID,
 			ClientID:     s.ClientID,
 			ProductID:    s.ProductID,
 			Confidence:   s.Confidence,
@@ -253,7 +255,7 @@ func (e *Engine) ScanPortfolio(ctx context.Context) ([]models.Opportunity, error
 		}
 
 		// Look up names
-		client, _ := e.store.GetClient(s.ClientID)
+		client, _ := e.store.GetClient(userID, s.ClientID)
 		if client != nil {
 			opp.ClientName = client.Name
 		}

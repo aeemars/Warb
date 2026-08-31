@@ -12,6 +12,14 @@
 
         async get(path) {
             const res = await fetch(this.base + path);
+            if (res.status === 401) {
+                state.currentUser = null;
+                updateUserUI();
+                if (state.currentPage !== 'login' && state.currentPage !== 'signin') {
+                    window.location.hash = 'login';
+                }
+                throw new Error('Authentication required');
+            }
             const data = await res.json();
             if (!data.success) throw new Error(data.error || 'API Error');
             return data.data;
@@ -23,6 +31,14 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: body ? JSON.stringify(body) : undefined,
             });
+            if (res.status === 401) {
+                state.currentUser = null;
+                updateUserUI();
+                if (state.currentPage !== 'login' && state.currentPage !== 'signin') {
+                    window.location.hash = 'login';
+                }
+                throw new Error('Authentication required');
+            }
             const data = await res.json();
             if (!data.success) throw new Error(data.error || 'API Error');
             return data.data;

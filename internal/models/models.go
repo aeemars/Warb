@@ -54,6 +54,7 @@ type RelationshipManager struct {
 // Client represents a corporate banking client.
 type Client struct {
 	ID                string          `json:"id"`
+	UserID            string          `json:"user_id"`
 	Name              string          `json:"name"`
 	NameAr            string          `json:"name_ar,omitempty"`
 	Industry          string          `json:"industry"`
@@ -100,6 +101,7 @@ type ClientProduct struct {
 // Interaction represents a recorded interaction with a client.
 type Interaction struct {
 	ID       string `json:"id"`
+	UserID   string `json:"user_id"`
 	ClientID string `json:"client_id"`
 	Type     string `json:"type"` // Meeting, Call, Email, Transaction, Note
 	Date     string `json:"date"`
@@ -111,6 +113,7 @@ type Interaction struct {
 // Opportunity represents an AI-generated product suggestion for a client.
 type Opportunity struct {
 	ID           string            `json:"id"`
+	UserID       string            `json:"user_id"`
 	ClientID     string            `json:"client_id"`
 	ClientName   string            `json:"client_name,omitempty"`
 	ProductID    string            `json:"product_id"`

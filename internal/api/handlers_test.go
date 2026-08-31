@@ -41,102 +41,107 @@ func setupTestServer(t *testing.T) (*http.ServeMux, *store.Store, func()) {
 	return mux, s, cleanup
 }
 
-func TestAuthFlow(t *testing.T) {
+func TestAuthAndUserIsolationAPI(t *testing.T) {
 	mux, s, cleanup := setupTestServer(t)
 	defer cleanup()
 
-	// 1. GET /api/auth/config
-	req := httptest.NewRequest(http.MethodGet, "/api/auth/config", nil)
+	// 1. Unauthenticated request to /api/clients should be 401 Unauthorized
+	req := httptest.NewRequest(http.MethodGet, "/api/clients", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK from /api/auth/config, got %d", rec.Code)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for unauthenticated /api/clients, got %d", rec.Code)
 	}
 
-	var configResp models.APIResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &configResp); err != nil {
-		t.Fatalf("failed to parse auth config response: %v", err)
-	}
-	if !configResp.Success {
-		t.Fatalf("expected success true in auth config")
-	}
-
-	// 2. GET /api/auth/me (Unauthenticated)
-	req = httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
-	rec = httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK from /api/auth/me, got %d", rec.Code)
-	}
-	var meResp models.APIResponse
-	_ = json.Unmarshal(rec.Body.Bytes(), &meResp)
-	meData, _ := json.Marshal(meResp.Data)
-	var authMe models.AuthUserResponse
-	_ = json.Unmarshal(meData, &authMe)
-	if authMe.Authenticated {
-		t.Errorf("expected authenticated=false initially, got true")
-	}
-
-	// 3. Create a real User and Session in Store
-	testUser := &models.User{
-		GoogleID: "google-123456789",
-		Email:    "tariq.rashid@warbabank.com",
+	// 2. Create User 1 and User 2 in Store
+	u1, err := s.UpsertGoogleUser(&models.User{
+		GoogleID: "gid-1",
+		Email:    "tariq@warbabank.com",
 		Name:     "Tariq Al-Rashid",
-		Avatar:   "https://lh3.googleusercontent.com/test",
-		Role:     "Senior Relationship Manager",
-	}
-	savedUser, err := s.UpsertGoogleUser(testUser)
+	})
 	if err != nil {
-		t.Fatalf("failed to save user: %v", err)
+		t.Fatalf("upsert user 1 failed: %v", err)
+	}
+	_ = s.SeedUserPortfolio(u1.ID, u1.Name)
+
+	u2, err := s.UpsertGoogleUser(&models.User{
+		GoogleID: "gid-2",
+		Email:    "fatima@warbabank.com",
+		Name:     "Fatima Al-Rashidi",
+	})
+	if err != nil {
+		t.Fatalf("upsert user 2 failed: %v", err)
 	}
 
-	token := "session-test-token-xyz"
-	if err := s.CreateSession(token, savedUser.ID, time.Now().Add(24*time.Hour)); err != nil {
-		t.Fatalf("failed to create session: %v", err)
-	}
+	token1 := "token-u1"
+	token2 := "token-u2"
+	_ = s.CreateSession(token1, u1.ID, time.Now().Add(24*time.Hour))
+	_ = s.CreateSession(token2, u2.ID, time.Now().Add(24*time.Hour))
 
-	// 4. GET /api/auth/me (Authenticated with Cookie)
-	req = httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
-	req.AddCookie(&http.Cookie{Name: "session_token", Value: token})
+	// 3. User 1 calls GET /api/clients (should get 20 clients)
+	req = httptest.NewRequest(http.MethodGet, "/api/clients", nil)
+	req.AddCookie(&http.Cookie{Name: "session_token", Value: token1})
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK from /api/auth/me with session, got %d", rec.Code)
+		t.Fatalf("expected 200 OK for user 1 /api/clients, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	_ = json.Unmarshal(rec.Body.Bytes(), &meResp)
-	meData, _ = json.Marshal(meResp.Data)
-	_ = json.Unmarshal(meData, &authMe)
-	if !authMe.Authenticated || authMe.User == nil {
-		t.Fatalf("expected authenticated=true with user, got %v", authMe)
-	}
-	if authMe.User.Email != "tariq.rashid@warbabank.com" {
-		t.Errorf("expected email tariq.rashid@warbabank.com, got %s", authMe.User.Email)
+	var clientsResp models.APIResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &clientsResp)
+	clientsBytes, _ := json.Marshal(clientsResp.Data)
+	var clients []models.Client
+	_ = json.Unmarshal(clientsBytes, &clients)
+	if len(clients) != 20 {
+		t.Errorf("expected 20 clients for user 1, got %d", len(clients))
 	}
 
-	// 5. POST /api/auth/logout
+	// 4. User 2 calls GET /api/clients (should get 0 clients before seeding)
+	req = httptest.NewRequest(http.MethodGet, "/api/clients", nil)
+	req.AddCookie(&http.Cookie{Name: "session_token", Value: token2})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for user 2 /api/clients, got %d", rec.Code)
+	}
+
+	_ = json.Unmarshal(rec.Body.Bytes(), &clientsResp)
+	clientsBytes, _ = json.Marshal(clientsResp.Data)
+	_ = json.Unmarshal(clientsBytes, &clients)
+	if len(clients) != 0 {
+		t.Errorf("expected 0 clients for user 2, got %d", len(clients))
+	}
+
+	// 5. User 1 calls GET /api/portfolio/summary
+	req = httptest.NewRequest(http.MethodGet, "/api/portfolio/summary", nil)
+	req.AddCookie(&http.Cookie{Name: "session_token", Value: token1})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for user 1 /api/portfolio/summary, got %d", rec.Code)
+	}
+
+	// 6. User 1 logs out
 	req = httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
-	req.AddCookie(&http.Cookie{Name: "session_token", Value: token})
+	req.AddCookie(&http.Cookie{Name: "session_token", Value: token1})
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK from /api/auth/logout, got %d", rec.Code)
+		t.Fatalf("expected 200 OK for logout, got %d", rec.Code)
 	}
 
-	// 6. GET /api/auth/me (After logout)
-	req = httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
-	req.AddCookie(&http.Cookie{Name: "session_token", Value: token})
+	// 7. Requesting /api/clients after logout should now fail with 401
+	req = httptest.NewRequest(http.MethodGet, "/api/clients", nil)
+	req.AddCookie(&http.Cookie{Name: "session_token", Value: token1})
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
-	_ = json.Unmarshal(rec.Body.Bytes(), &meResp)
-	meData, _ = json.Marshal(meResp.Data)
-	_ = json.Unmarshal(meData, &authMe)
-	if authMe.Authenticated {
-		t.Errorf("expected authenticated=false after logout, got true")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized after logout, got %d", rec.Code)
 	}
 }

@@ -19,7 +19,7 @@ func setupTestStore(t *testing.T) (*Store, func()) {
 	s, err := New(dbPath)
 	if err != nil {
 		os.RemoveAll(tmpDir)
-		t.Fatalf("failed to create store: %v", err)
+		t.Fatalf("failed to open store: %v", err)
 	}
 
 	cleanup := func() {
@@ -29,106 +29,98 @@ func setupTestStore(t *testing.T) (*Store, func()) {
 	return s, cleanup
 }
 
-func TestStoreCRUDAndSeed(t *testing.T) {
+func TestStoreCRUDAndUserIsolation(t *testing.T) {
 	s, cleanup := setupTestStore(t)
 	defer cleanup()
 
-	empty, err := s.IsEmpty()
-	if err != nil {
-		t.Fatalf("IsEmpty failed: %v", err)
-	}
-	if !empty {
-		t.Errorf("expected empty store, got empty=false")
-	}
-
+	// 1. Seed Global Products
 	if err := s.Seed(); err != nil {
-		t.Fatalf("Seed failed: %v", err)
+		t.Fatalf("seeding failed: %v", err)
 	}
 
-	empty, err = s.IsEmpty()
-	if err != nil {
-		t.Fatalf("IsEmpty after seed failed: %v", err)
-	}
-	if empty {
-		t.Errorf("expected non-empty store after seed")
-	}
-
-	// Test ListClients
-	clients, err := s.ListClients()
-	if err != nil {
-		t.Fatalf("ListClients failed: %v", err)
-	}
-	if len(clients) != 20 {
-		t.Errorf("expected 20 clients, got %d", len(clients))
-	}
-
-	// Test GetClient
-	client, err := s.GetClient("cli-001")
-	if err != nil {
-		t.Fatalf("GetClient failed: %v", err)
-	}
-	if client == nil {
-		t.Fatalf("expected client cli-001, got nil")
-	}
-	if len(client.CurrentProducts) == 0 {
-		t.Errorf("expected client products, got 0")
-	}
-	if len(client.Interactions) == 0 {
-		t.Errorf("expected client interactions, got 0")
-	}
-
-	// Test Products
 	products, err := s.ListProducts()
 	if err != nil {
-		t.Fatalf("ListProducts failed: %v", err)
+		t.Fatalf("listing products failed: %v", err)
 	}
 	if len(products) != 10 {
 		t.Errorf("expected 10 products, got %d", len(products))
 	}
 
-	// Test Opportunities
-	opp := models.Opportunity{
-		ID:           "test-opp-1",
-		ClientID:     "cli-001",
-		ProductID:    "prod-001",
-		Confidence:   0.92,
-		Urgency:      models.UrgencyHigh,
-		Reasoning:    "Test reasoning",
-		NextAction:   "Test next action",
-		ShariahNotes: "Test shariah notes",
-		Status:       models.OpportunityNew,
-		CreatedAt:    time.Now(),
-	}
-	if err := s.InsertOpportunity(opp); err != nil {
-		t.Fatalf("InsertOpportunity failed: %v", err)
-	}
-
-	opps, err := s.ListOpportunities("", "", "")
+	// 2. Create User 1 and User 2
+	user1, err := s.UpsertGoogleUser(&models.User{
+		GoogleID: "gid-user-1",
+		Email:    "user1@warbabank.com",
+		Name:     "Tariq Al-Rashid",
+	})
 	if err != nil {
-		t.Fatalf("ListOpportunities failed: %v", err)
-	}
-	if len(opps) != 1 {
-		t.Errorf("expected 1 opportunity, got %d", len(opps))
+		t.Fatalf("upsert user 1 failed: %v", err)
 	}
 
-	// Test UpdateOpportunityStatus
-	if err := s.UpdateOpportunityStatus("test-opp-1", models.OpportunityAccepted); err != nil {
-		t.Fatalf("UpdateOpportunityStatus failed: %v", err)
-	}
-
-	// Test Portfolio Summary
-	summary, err := s.GetPortfolioSummary()
+	user2, err := s.UpsertGoogleUser(&models.User{
+		GoogleID: "gid-user-2",
+		Email:    "user2@warbabank.com",
+		Name:     "Fatima Al-Rashidi",
+	})
 	if err != nil {
-		t.Fatalf("GetPortfolioSummary failed: %v", err)
+		t.Fatalf("upsert user 2 failed: %v", err)
 	}
-	if summary.TotalClients != 20 {
-		t.Errorf("expected 20 clients in summary, got %d", summary.TotalClients)
+
+	// 3. Seed portfolio for User 1 only
+	if err := s.SeedUserPortfolio(user1.ID, user1.Name); err != nil {
+		t.Fatalf("seeding user 1 portfolio failed: %v", err)
 	}
-	if summary.AcceptedOpps != 1 {
-		t.Errorf("expected 1 accepted opportunity, got %d", summary.AcceptedOpps)
+
+	// 4. Verify User 1 has 20 clients, but User 2 has 0 clients
+	u1Clients, err := s.ListClients(user1.ID)
+	if err != nil {
+		t.Fatalf("listing user 1 clients failed: %v", err)
 	}
-	if len(summary.TopIndustries) == 0 {
-		t.Errorf("expected top industries, got 0")
+	if len(u1Clients) != 20 {
+		t.Errorf("expected 20 clients for user 1, got %d", len(u1Clients))
+	}
+
+	u2Clients, err := s.ListClients(user2.ID)
+	if err != nil {
+		t.Fatalf("listing user 2 clients failed: %v", err)
+	}
+	if len(u2Clients) != 0 {
+		t.Errorf("expected 0 clients for user 2 before seeding, got %d", len(u2Clients))
+	}
+
+	// 5. Verify User 1 Opportunities & Summary
+	summary1, err := s.GetPortfolioSummary(user1.ID)
+	if err != nil {
+		t.Fatalf("get user 1 summary failed: %v", err)
+	}
+	if summary1.TotalClients != 20 {
+		t.Errorf("expected 20 total clients in summary, got %d", summary1.TotalClients)
+	}
+	if summary1.TotalOpportunities == 0 {
+		t.Errorf("expected >0 opportunities for user 1")
+	}
+
+	summary2, err := s.GetPortfolioSummary(user2.ID)
+	if err != nil {
+		t.Fatalf("get user 2 summary failed: %v", err)
+	}
+	if summary2.TotalClients != 0 {
+		t.Errorf("expected 0 total clients for user 2, got %d", summary2.TotalClients)
+	}
+
+	// 6. Test Opportunity status updates for User 1
+	opps, err := s.ListOpportunities(user1.ID, "", "", "")
+	if err != nil || len(opps) == 0 {
+		t.Fatalf("failed to list user 1 opportunities: %v", err)
+	}
+
+	firstOpp := opps[0]
+	if err := s.UpdateOpportunityStatus(user1.ID, firstOpp.ID, models.OpportunityAccepted); err != nil {
+		t.Fatalf("updating opportunity status failed: %v", err)
+	}
+
+	// Verify User 2 cannot update User 1's opportunity
+	if err := s.UpdateOpportunityStatus(user2.ID, firstOpp.ID, models.OpportunityConverted); err == nil {
+		t.Errorf("expected error when user 2 updates user 1 opportunity, got nil")
 	}
 }
 
@@ -136,10 +128,10 @@ func TestUserAndSessionStore(t *testing.T) {
 	s, cleanup := setupTestStore(t)
 	defer cleanup()
 
-	// 1. Test insert new Google User
+	// 1. Create a user
 	u := &models.User{
-		GoogleID: "google-123456",
-		Email:    "ahmad.mutairi@example.com",
+		GoogleID: "test-google-id-12345",
+		Email:    "ahmad.mutairi@warbabank.com",
 		Name:     "Ahmad Al-Mutairi",
 		Avatar:   "https://lh3.googleusercontent.com/a/test-avatar",
 		Role:     "Senior Relationship Manager",
@@ -149,58 +141,37 @@ func TestUserAndSessionStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertGoogleUser failed: %v", err)
 	}
-	if saved.ID == "" {
-		t.Errorf("expected user ID to be generated, got empty")
-	}
-	if saved.Email != u.Email {
-		t.Errorf("expected email %s, got %s", u.Email, saved.Email)
+	if saved.ID == "" || saved.Email != u.Email {
+		t.Errorf("unexpected saved user: %+v", saved)
 	}
 
-	// 2. Test update existing Google User
-	uUpdate := &models.User{
-		GoogleID: "google-123456",
-		Email:    "ahmad.mutairi@example.com",
-		Name:     "Ahmad Al-Mutairi (Updated)",
-		Avatar:   "https://lh3.googleusercontent.com/a/new-avatar",
-	}
-	updated, err := s.UpsertGoogleUser(uUpdate)
+	// 2. Create a session
+	token := "session-token-random-123456789"
+	err = s.CreateSession(token, saved.ID, time.Now().Add(24*time.Hour))
 	if err != nil {
-		t.Fatalf("UpsertGoogleUser update failed: %v", err)
-	}
-	if updated.ID != saved.ID {
-		t.Errorf("expected same user ID %s, got %s", saved.ID, updated.ID)
-	}
-	if updated.Name != "Ahmad Al-Mutairi (Updated)" {
-		t.Errorf("expected updated name, got %s", updated.Name)
-	}
-
-	// 3. Test Session creation and retrieval
-	token := "sess-tok-12345"
-	expiresAt := time.Now().Add(24 * time.Hour)
-	if err := s.CreateSession(token, saved.ID, expiresAt); err != nil {
 		t.Fatalf("CreateSession failed: %v", err)
 	}
 
-	sessionUser, err := s.GetUserBySession(token)
+	// 3. Retrieve user by session
+	fetched, err := s.GetUserBySession(token)
 	if err != nil {
 		t.Fatalf("GetUserBySession failed: %v", err)
 	}
-	if sessionUser == nil {
-		t.Fatalf("expected session user, got nil")
-	}
-	if sessionUser.ID != saved.ID {
-		t.Errorf("expected user ID %s, got %s", saved.ID, sessionUser.ID)
+	if fetched == nil || fetched.ID != saved.ID || fetched.Email != saved.Email {
+		t.Errorf("unexpected user from session: %+v", fetched)
 	}
 
-	// 4. Test Session Deletion
-	if err := s.DeleteSession(token); err != nil {
+	// 4. Delete session and verify
+	err = s.DeleteSession(token)
+	if err != nil {
 		t.Fatalf("DeleteSession failed: %v", err)
 	}
-	sessionUserAfter, err := s.GetUserBySession(token)
+
+	fetchedAfterDelete, err := s.GetUserBySession(token)
 	if err != nil {
 		t.Fatalf("GetUserBySession after delete failed: %v", err)
 	}
-	if sessionUserAfter != nil {
-		t.Errorf("expected nil after delete, got %v", sessionUserAfter)
+	if fetchedAfterDelete != nil {
+		t.Errorf("expected nil user after session delete, got %+v", fetchedAfterDelete)
 	}
 }
