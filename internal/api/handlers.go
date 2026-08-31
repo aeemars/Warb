@@ -1,11 +1,15 @@
 package api
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
+	"opportunity-engine/internal/auth"
 	"opportunity-engine/internal/engine"
 	"opportunity-engine/internal/models"
 	"opportunity-engine/internal/store"
@@ -13,19 +17,32 @@ import (
 
 // Handlers holds the HTTP handler methods.
 type Handlers struct {
-	store  *store.Store
-	engine *engine.Engine
+	store          *store.Store
+	engine         *engine.Engine
+	googleClientID string
 }
 
 // NewHandlers creates new Handlers.
-func NewHandlers(s *store.Store, e *engine.Engine) *Handlers {
-	return &Handlers{store: s, engine: e}
+func NewHandlers(s *store.Store, e *engine.Engine, googleClientID string) *Handlers {
+	return &Handlers{
+		store:          s,
+		engine:         e,
+		googleClientID: strings.TrimSpace(googleClientID),
+	}
 }
 
 // RegisterRoutes registers all API routes on the given mux.
 func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api", h.handleAPIRoot)
 	mux.HandleFunc("/api/", h.handleAPIRoot)
+
+	// Auth routes
+	mux.HandleFunc("/api/auth/config", h.handleAuthConfig)
+	mux.HandleFunc("/api/auth/google", h.handleGoogleAuth)
+	mux.HandleFunc("/api/auth/me", h.handleAuthMe)
+	mux.HandleFunc("/api/auth/logout", h.handleAuthLogout)
+
+	// App domain routes
 	mux.HandleFunc("/api/clients", h.handleListClients)
 	mux.HandleFunc("/api/clients/", h.handleClientRoutes)
 	mux.HandleFunc("/api/opportunities", h.handleListOpportunities)
@@ -44,7 +61,12 @@ func (h *Handlers) handleAPIRoot(w http.ResponseWriter, r *http.Request) {
 		"name":        "Warba Bank — Proactive Client Opportunity Engine API",
 		"status":      "online",
 		"dashboard":   "/",
+		"auth_google": h.googleClientID != "",
 		"endpoints": map[string]string{
+			"GET  /api/auth/config":        "Get public auth configuration and Google Client ID",
+			"POST /api/auth/google":        "Authenticate with Google ID token credential",
+			"GET  /api/auth/me":            "Get currently authenticated user profile",
+			"POST /api/auth/logout":        "Log out and invalidate session",
 			"GET  /api/clients":            "List all clients",
 			"GET  /api/clients/:id":        "Get single client with history and product holdings",
 			"POST /api/clients/:id/analyze": "Trigger AI opportunity analysis for a client",
@@ -55,6 +77,144 @@ func (h *Handlers) handleAPIRoot(w http.ResponseWriter, r *http.Request) {
 			"GET  /api/products":           "List Warba Bank Shariah-compliant product catalog",
 		},
 	})
+}
+
+// --- Authentication Handlers ---
+
+func (h *Handlers) handleAuthConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		h.methodNotAllowed(w)
+		return
+	}
+	h.jsonOK(w, models.AuthConfigResponse{
+		GoogleClientID: h.googleClientID,
+		Enabled:        h.googleClientID != "",
+	})
+}
+
+func (h *Handlers) handleGoogleAuth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		h.methodNotAllowed(w)
+		return
+	}
+
+	var req models.GoogleAuthRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.badRequest(w, "Invalid request payload")
+		return
+	}
+
+	profile, err := auth.VerifyGoogleIDToken(req.Credential, h.googleClientID)
+	if err != nil {
+		log.Printf("[Auth] Google token verification failed: %v", err)
+		h.badRequest(w, "Google verification failed: "+err.Error())
+		return
+	}
+
+	// Upsert User in SQLite
+	u := &models.User{
+		GoogleID: profile.Sub,
+		Email:    profile.Email,
+		Name:     profile.Name,
+		Avatar:   profile.Picture,
+		Role:     "Senior Relationship Manager",
+	}
+
+	savedUser, err := h.store.UpsertGoogleUser(u)
+	if err != nil {
+		h.serverError(w, "Failed to save user account", err)
+		return
+	}
+
+	// Create Session Token
+	sessionToken := generateSecureToken(32)
+	expiresAt := time.Now().Add(7 * 24 * time.Hour) // 7 days session
+	if err := h.store.CreateSession(sessionToken, savedUser.ID, expiresAt); err != nil {
+		h.serverError(w, "Failed to create user session", err)
+		return
+	}
+
+	// Set HTTP Session Cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session_token",
+		Value:    sessionToken,
+		Path:     "/",
+		Expires:  expiresAt,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	log.Printf("[Auth] User successfully logged in: %s (%s)", savedUser.Name, savedUser.Email)
+	h.jsonOK(w, map[string]interface{}{
+		"user":          savedUser,
+		"authenticated": true,
+		"token":         sessionToken,
+	})
+}
+
+func (h *Handlers) handleAuthMe(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		h.methodNotAllowed(w)
+		return
+	}
+
+	token := extractSessionToken(r)
+	if token == "" {
+		h.jsonOK(w, models.AuthUserResponse{User: nil, Authenticated: false})
+		return
+	}
+
+	user, err := h.store.GetUserBySession(token)
+	if err != nil || user == nil {
+		h.jsonOK(w, models.AuthUserResponse{User: nil, Authenticated: false})
+		return
+	}
+
+	h.jsonOK(w, models.AuthUserResponse{User: user, Authenticated: true})
+}
+
+func (h *Handlers) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		h.methodNotAllowed(w)
+		return
+	}
+
+	token := extractSessionToken(r)
+	if token != "" {
+		_ = h.store.DeleteSession(token)
+	}
+
+	// Clear cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session_token",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		Expires:  time.Unix(0, 0),
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	h.jsonOK(w, map[string]interface{}{
+		"logged_out": true,
+	})
+}
+
+func extractSessionToken(r *http.Request) string {
+	if c, err := r.Cookie("session_token"); err == nil && c.Value != "" {
+		return c.Value
+	}
+	authHeader := r.Header.Get("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		return strings.TrimPrefix(authHeader, "Bearer ")
+	}
+	return ""
+}
+
+func generateSecureToken(length int) string {
+	b := make([]byte, length)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // --- Client Handlers ---
@@ -77,7 +237,6 @@ func (h *Handlers) handleListClients(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleClientRoutes(w http.ResponseWriter, r *http.Request) {
-	// Parse: /api/clients/{id} or /api/clients/{id}/analyze
 	path := strings.TrimPrefix(r.URL.Path, "/api/clients/")
 	parts := strings.SplitN(path, "/", 2)
 	clientID := parts[0]
@@ -87,13 +246,11 @@ func (h *Handlers) handleClientRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// /api/clients/{id}/analyze
 	if len(parts) > 1 && parts[1] == "analyze" {
 		h.handleAnalyzeClient(w, r, clientID)
 		return
 	}
 
-	// /api/clients/{id}
 	if r.Method != http.MethodGet {
 		h.methodNotAllowed(w)
 		return
@@ -172,7 +329,6 @@ func (h *Handlers) handleOpportunityRoutes(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Validate status
 	validStatuses := map[models.OpportunityStatus]bool{
 		models.OpportunityNew:       true,
 		models.OpportunityReviewed:  true,

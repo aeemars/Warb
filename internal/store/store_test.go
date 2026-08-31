@@ -131,3 +131,76 @@ func TestStoreCRUDAndSeed(t *testing.T) {
 		t.Errorf("expected top industries, got 0")
 	}
 }
+
+func TestUserAndSessionStore(t *testing.T) {
+	s, cleanup := setupTestStore(t)
+	defer cleanup()
+
+	// 1. Test insert new Google User
+	u := &models.User{
+		GoogleID: "google-123456",
+		Email:    "ahmad.mutairi@example.com",
+		Name:     "Ahmad Al-Mutairi",
+		Avatar:   "https://lh3.googleusercontent.com/a/test-avatar",
+		Role:     "Senior Relationship Manager",
+	}
+
+	saved, err := s.UpsertGoogleUser(u)
+	if err != nil {
+		t.Fatalf("UpsertGoogleUser failed: %v", err)
+	}
+	if saved.ID == "" {
+		t.Errorf("expected user ID to be generated, got empty")
+	}
+	if saved.Email != u.Email {
+		t.Errorf("expected email %s, got %s", u.Email, saved.Email)
+	}
+
+	// 2. Test update existing Google User
+	uUpdate := &models.User{
+		GoogleID: "google-123456",
+		Email:    "ahmad.mutairi@example.com",
+		Name:     "Ahmad Al-Mutairi (Updated)",
+		Avatar:   "https://lh3.googleusercontent.com/a/new-avatar",
+	}
+	updated, err := s.UpsertGoogleUser(uUpdate)
+	if err != nil {
+		t.Fatalf("UpsertGoogleUser update failed: %v", err)
+	}
+	if updated.ID != saved.ID {
+		t.Errorf("expected same user ID %s, got %s", saved.ID, updated.ID)
+	}
+	if updated.Name != "Ahmad Al-Mutairi (Updated)" {
+		t.Errorf("expected updated name, got %s", updated.Name)
+	}
+
+	// 3. Test Session creation and retrieval
+	token := "sess-tok-12345"
+	expiresAt := time.Now().Add(24 * time.Hour)
+	if err := s.CreateSession(token, saved.ID, expiresAt); err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	sessionUser, err := s.GetUserBySession(token)
+	if err != nil {
+		t.Fatalf("GetUserBySession failed: %v", err)
+	}
+	if sessionUser == nil {
+		t.Fatalf("expected session user, got nil")
+	}
+	if sessionUser.ID != saved.ID {
+		t.Errorf("expected user ID %s, got %s", saved.ID, sessionUser.ID)
+	}
+
+	// 4. Test Session Deletion
+	if err := s.DeleteSession(token); err != nil {
+		t.Fatalf("DeleteSession failed: %v", err)
+	}
+	sessionUserAfter, err := s.GetUserBySession(token)
+	if err != nil {
+		t.Fatalf("GetUserBySession after delete failed: %v", err)
+	}
+	if sessionUserAfter != nil {
+		t.Errorf("expected nil after delete, got %v", sessionUserAfter)
+	}
+}

@@ -16,11 +16,11 @@ type Server struct {
 }
 
 // NewServer creates and configures a new HTTP server.
-func NewServer(port string, s *store.Store, e *engine.Engine) *Server {
+func NewServer(port string, s *store.Store, e *engine.Engine, googleClientID string) *Server {
 	mux := http.NewServeMux()
 
 	// Register API routes
-	handlers := NewHandlers(s, e)
+	handlers := NewHandlers(s, e, googleClientID)
 	handlers.RegisterRoutes(mux)
 
 	// Serve static frontend files

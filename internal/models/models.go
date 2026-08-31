@@ -164,7 +164,41 @@ type ProductStat struct {
 	Count       int    `json:"count"`
 }
 
+// User represents an authenticated corporate banking user / RM.
+type User struct {
+	ID        string    `json:"id"`
+	GoogleID  string    `json:"google_id"`
+	Email     string    `json:"email"`
+	Name      string    `json:"name"`
+	Avatar    string    `json:"avatar"`
+	Role      string    `json:"role"`
+	CreatedAt time.Time `json:"created_at"`
+	LastLogin time.Time `json:"last_login"`
+}
+
+// Session represents an authenticated user session.
+type Session struct {
+	Token     string    `json:"token"`
+	UserID    string    `json:"user_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
 // --- API Request/Response Types ---
+
+type GoogleAuthRequest struct {
+	Credential string `json:"credential"`
+}
+
+type AuthConfigResponse struct {
+	GoogleClientID string `json:"google_client_id"`
+	Enabled        bool   `json:"enabled"`
+}
+
+type AuthUserResponse struct {
+	User          *User `json:"user"`
+	Authenticated bool  `json:"authenticated"`
+}
+
 
 type AnalyzeRequest struct {
 	ClientID string `json:"client_id"`

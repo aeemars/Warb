@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"opportunity-engine/internal/models"
+	"github.com/google/uuid"
 
 	_ "modernc.org/sqlite"
 )
@@ -120,10 +121,28 @@ func (s *Store) migrate() error {
 		updated_at TEXT
 	);
 
+	CREATE TABLE IF NOT EXISTS users (
+		id TEXT PRIMARY KEY,
+		google_id TEXT UNIQUE,
+		email TEXT UNIQUE NOT NULL,
+		name TEXT NOT NULL,
+		avatar TEXT DEFAULT '',
+		role TEXT DEFAULT 'Senior Relationship Manager',
+		created_at TEXT NOT NULL,
+		last_login TEXT NOT NULL
+	);
+
+	CREATE TABLE IF NOT EXISTS sessions (
+		token TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		expires_at TEXT NOT NULL
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_opportunities_client ON opportunities(client_id);
 	CREATE INDEX IF NOT EXISTS idx_opportunities_status ON opportunities(status);
 	CREATE INDEX IF NOT EXISTS idx_interactions_client ON interactions(client_id);
 	CREATE INDEX IF NOT EXISTS idx_clients_rm ON clients(rm_id);
+	CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 	`
 	_, err := s.db.Exec(schema)
 	return err
@@ -564,4 +583,105 @@ func (s *Store) GetPortfolioSummary() (*models.PortfolioSummary, error) {
 	rows3.Close()
 
 	return summary, nil
+}
+
+// --- Users & Sessions ---
+
+func (s *Store) UpsertGoogleUser(u *models.User) (*models.User, error) {
+	now := time.Now().Format(time.RFC3339)
+	if u.Role == "" {
+		u.Role = "Senior Relationship Manager"
+	}
+
+	var existing models.User
+	var createdAtStr, lastLoginStr string
+	err := s.db.QueryRow(`
+		SELECT id, google_id, email, name, avatar, role, created_at, last_login
+		FROM users
+		WHERE google_id = ? OR email = ?
+	`, u.GoogleID, u.Email).Scan(
+		&existing.ID, &existing.GoogleID, &existing.Email, &existing.Name,
+		&existing.Avatar, &existing.Role, &createdAtStr, &lastLoginStr,
+	)
+
+	if err == sql.ErrNoRows {
+		if u.ID == "" {
+			u.ID = "usr-" + uuid.New().String()[:8]
+		}
+		u.CreatedAt = time.Now()
+		u.LastLogin = time.Now()
+		_, err := s.db.Exec(`
+			INSERT INTO users (id, google_id, email, name, avatar, role, created_at, last_login)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`, u.ID, u.GoogleID, u.Email, u.Name, u.Avatar, u.Role, now, now)
+		if err != nil {
+			return nil, fmt.Errorf("inserting user: %w", err)
+		}
+		return u, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("querying user: %w", err)
+	}
+
+	existing.GoogleID = u.GoogleID
+	existing.Name = u.Name
+	if u.Avatar != "" {
+		existing.Avatar = u.Avatar
+	}
+	existing.LastLogin = time.Now()
+	existing.CreatedAt, _ = time.Parse(time.RFC3339, createdAtStr)
+
+	_, err = s.db.Exec(`
+		UPDATE users
+		SET google_id = ?, name = ?, avatar = ?, last_login = ?
+		WHERE id = ?
+	`, existing.GoogleID, existing.Name, existing.Avatar, now, existing.ID)
+	if err != nil {
+		return nil, fmt.Errorf("updating user: %w", err)
+	}
+
+	return &existing, nil
+}
+
+func (s *Store) CreateSession(token, userID string, expiresAt time.Time) error {
+	_, err := s.db.Exec(`
+		INSERT INTO sessions (token, user_id, expires_at)
+		VALUES (?, ?, ?)
+		ON CONFLICT(token) DO UPDATE SET user_id = excluded.user_id, expires_at = excluded.expires_at
+	`, token, userID, expiresAt.Format(time.RFC3339))
+	return err
+}
+
+func (s *Store) GetUserBySession(token string) (*models.User, error) {
+	var u models.User
+	var createdAtStr, lastLoginStr, expiresAtStr string
+	err := s.db.QueryRow(`
+		SELECT u.id, u.google_id, u.email, u.name, u.avatar, u.role, u.created_at, u.last_login, s.expires_at
+		FROM sessions s
+		JOIN users u ON u.id = s.user_id
+		WHERE s.token = ?
+	`, token).Scan(
+		&u.ID, &u.GoogleID, &u.Email, &u.Name, &u.Avatar, &u.Role,
+		&createdAtStr, &lastLoginStr, &expiresAtStr,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	expiresAt, err := time.Parse(time.RFC3339, expiresAtStr)
+	if err == nil && time.Now().After(expiresAt) {
+		_ = s.DeleteSession(token)
+		return nil, nil
+	}
+
+	u.CreatedAt, _ = time.Parse(time.RFC3339, createdAtStr)
+	u.LastLogin, _ = time.Parse(time.RFC3339, lastLoginStr)
+	return &u, nil
+}
+
+func (s *Store) DeleteSession(token string) error {
+	_, err := s.db.Exec("DELETE FROM sessions WHERE token = ?", token)
+	return err
 }

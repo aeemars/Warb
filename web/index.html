@@ -3,13 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Warb</title>
+    <title>Warb — Proactive Opportunity Engine</title>
     <meta name="description" content="AI-powered proactive client opportunity engine for Warba Bank's corporate banking relationship managers.">
 
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="alternate icon" type="image/png" href="/favicon.png">
     <link rel="shortcut icon" href="/favicon.ico">
+
+    <!-- Google Identity Services (GSI) -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
 
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -37,7 +40,7 @@
 
         <nav class="sidebar-nav">
             <a href="#dashboard" class="nav-item active" data-page="dashboard" id="nav-dashboard">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
                 <span>Dashboard</span>
             </a>
             <a href="#clients" class="nav-item" data-page="clients" id="nav-clients">
@@ -55,14 +58,19 @@
             </a>
         </nav>
 
-        <div class="sidebar-footer">
-            <div class="rm-profile">
-                <div class="rm-avatar">AM</div>
+        <!-- Dynamic User Profile / Google Sign-In Footer -->
+        <div class="sidebar-footer" id="sidebar-auth-footer">
+            <div class="rm-profile" id="user-profile-widget">
+                <div class="rm-avatar" id="user-avatar">RM</div>
                 <div class="rm-info">
-                    <span class="rm-name">Ahmad Al-Mutairi</span>
-                    <span class="rm-title">Senior RM</span>
+                    <span class="rm-name" id="user-name">Ahmad Al-Mutairi</span>
+                    <span class="rm-title" id="user-role">Senior RM</span>
                 </div>
+                <button class="btn-logout" id="btn-sidebar-logout" title="Sign Out" style="display:none;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                </button>
             </div>
+            <div id="sidebar-gsi-container" class="gsi-container" style="display:none;"></div>
         </div>
     </aside>
 
@@ -74,6 +82,20 @@
                 <h1 class="page-title" id="page-title">Dashboard</h1>
             </div>
             <div class="header-right">
+                <!-- Google Sign-In / Header Profile Button -->
+                <div class="header-auth" id="header-auth">
+                    <div id="header-gsi-btn" class="header-gsi-slot"></div>
+                    <button class="btn btn-secondary btn-sm" id="btn-login-modal" style="display:none;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>
+                        Sign in with Google
+                    </button>
+                    <div class="user-pill" id="header-user-pill" style="display:none;">
+                        <img class="user-pill-avatar" id="header-user-avatar" src="" alt="Avatar" />
+                        <span class="user-pill-name" id="header-user-name">User</span>
+                        <button class="btn-pill-logout" id="btn-header-logout" title="Sign Out">✕</button>
+                    </div>
+                </div>
+
                 <button class="btn btn-primary btn-scan" id="btn-portfolio-scan" title="AI-scan entire portfolio for opportunities">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
                     Portfolio Scan

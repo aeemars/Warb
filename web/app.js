@@ -39,6 +39,13 @@
             return data.data;
         },
 
+        // Auth
+        authConfig: () => API.get('/auth/config'),
+        authMe: () => API.get('/auth/me'),
+        authGoogle: (credential) => API.post('/auth/google', { credential }),
+        authLogout: () => API.post('/auth/logout'),
+
+        // Domain
         clients: () => API.get('/clients'),
         client: (id) => API.get('/clients/' + id),
         analyzeClient: (id) => API.post('/clients/' + id + '/analyze'),
@@ -55,6 +62,8 @@
     // --- State ---
     let state = {
         currentPage: 'dashboard',
+        currentUser: null,
+        authConfig: null,
         clients: [],
         opportunities: [],
         products: [],
@@ -151,6 +160,7 @@
     }
 
     function initials(name) {
+        if (!name) return 'RM';
         return name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
     }
 
@@ -196,6 +206,206 @@
             <p>${msg}</p>
             ${sub ? `<p class="sub">${sub}</p>` : ''}
         </div>`;
+    }
+
+    // --- Authentication & User Profile ---
+
+    async function initAuth() {
+        try {
+            const [cfg, me] = await Promise.all([
+                API.authConfig().catch(() => ({ google_client_id: '', enabled: false })),
+                API.authMe().catch(() => ({ authenticated: false, user: null })),
+            ]);
+
+            state.authConfig = cfg;
+            state.currentUser = me.authenticated ? me.user : null;
+
+            updateUserUI();
+
+            // Set up Google Identity Services
+            if (cfg.google_client_id && window.google && window.google.accounts && window.google.accounts.id) {
+                google.accounts.id.initialize({
+                    client_id: cfg.google_client_id,
+                    callback: handleGoogleCredentialResponse,
+                    auto_select: false,
+                });
+                renderGoogleButtons();
+            } else if (cfg.google_client_id) {
+                window.addEventListener('load', () => {
+                    if (window.google && window.google.accounts && window.google.accounts.id) {
+                        google.accounts.id.initialize({
+                            client_id: cfg.google_client_id,
+                            callback: handleGoogleCredentialResponse,
+                            auto_select: false,
+                        });
+                        renderGoogleButtons();
+                    }
+                });
+            }
+        } catch (err) {
+            console.warn('[Auth] init error:', err);
+        }
+
+        // Attach Logout Buttons
+        $('btn-sidebar-logout')?.addEventListener('click', handleLogout);
+        $('btn-header-logout')?.addEventListener('click', handleLogout);
+        $('btn-login-modal')?.addEventListener('click', openLoginModal);
+    }
+
+    function renderGoogleButtons() {
+        if (!state.currentUser && state.authConfig?.google_client_id) {
+            const headerSlot = $('header-gsi-btn');
+            if (headerSlot) {
+                headerSlot.innerHTML = '';
+                google.accounts.id.renderButton(headerSlot, {
+                    theme: 'filled_black',
+                    size: 'medium',
+                    shape: 'pill',
+                    text: 'signin_with',
+                });
+            }
+        }
+    }
+
+    window.handleGoogleCredentialResponse = async function (response) {
+        if (!response || !response.credential) return;
+        try {
+            showToast('Authenticating with Google...', 'info');
+            const data = await API.authGoogle(response.credential);
+            state.currentUser = data.user;
+            updateUserUI();
+            showToast(`Welcome, ${data.user.name}!`, 'success');
+            $('modal-overlay').style.display = 'none';
+        } catch (err) {
+            showToast('Sign-in failed: ' + err.message, 'error');
+        }
+    };
+
+    async function handleLogout() {
+        try {
+            await API.authLogout();
+            state.currentUser = null;
+            updateUserUI();
+            showToast('Signed out successfully', 'info');
+            if (state.authConfig?.google_client_id && window.google?.accounts?.id) {
+                renderGoogleButtons();
+            }
+        } catch (err) {
+            showToast('Logout failed: ' + err.message, 'error');
+        }
+    }
+
+    function updateUserUI() {
+        const u = state.currentUser;
+
+        const userName = $('user-name');
+        const userRole = $('user-role');
+        const userAvatar = $('user-avatar');
+        const btnSidebarLogout = $('btn-sidebar-logout');
+
+        const headerGsiSlot = $('header-gsi-btn');
+        const btnLoginModal = $('btn-login-modal');
+        const headerUserPill = $('header-user-pill');
+        const headerUserName = $('header-user-name');
+        const headerUserAvatar = $('header-user-avatar');
+
+        if (u) {
+            if (userName) userName.textContent = u.name;
+            if (userRole) userRole.textContent = u.role || 'Senior RM';
+            if (userAvatar) {
+                if (u.avatar) {
+                    userAvatar.innerHTML = `<img src="${u.avatar}" alt="${u.name}" onerror="this.parentElement.textContent='${initials(u.name)}'" />`;
+                } else {
+                    userAvatar.textContent = initials(u.name);
+                }
+            }
+            if (btnSidebarLogout) btnSidebarLogout.style.display = 'flex';
+
+            if (headerGsiSlot) headerGsiSlot.style.display = 'none';
+            if (btnLoginModal) btnLoginModal.style.display = 'none';
+            if (headerUserPill) headerUserPill.style.display = 'inline-flex';
+            if (headerUserName) headerUserName.textContent = u.name;
+            if (headerUserAvatar) {
+                if (u.avatar) {
+                    headerUserAvatar.src = u.avatar;
+                    headerUserAvatar.style.display = 'inline-block';
+                } else {
+                    headerUserAvatar.style.display = 'none';
+                }
+            }
+        } else {
+            if (userName) userName.textContent = 'Ahmad Al-Mutairi';
+            if (userRole) userRole.textContent = 'Demo RM Profile';
+            if (userAvatar) userAvatar.textContent = 'AM';
+            if (btnSidebarLogout) btnSidebarLogout.style.display = 'none';
+
+            if (headerUserPill) headerUserPill.style.display = 'none';
+
+            if (state.authConfig?.google_client_id) {
+                if (headerGsiSlot) headerGsiSlot.style.display = 'flex';
+                if (btnLoginModal) btnLoginModal.style.display = 'none';
+                renderGoogleButtons();
+            } else {
+                if (headerGsiSlot) headerGsiSlot.style.display = 'none';
+                if (btnLoginModal) btnLoginModal.style.display = 'inline-flex';
+            }
+        }
+    }
+
+    function openLoginModal() {
+        const modal = $('modal');
+        const modalTitle = $('modal-title');
+        const modalBody = $('modal-body');
+        const modalOverlay = $('modal-overlay');
+
+        modalTitle.textContent = 'Google Authentication';
+        modalBody.innerHTML = `
+            <div class="auth-modal-card">
+                <div class="auth-modal-icon">W</div>
+                <h3 class="auth-modal-title">Sign in to Warba Opportunity Engine</h3>
+                <p class="auth-modal-desc">
+                    Authenticate using your official Google account to access corporate relationship portfolios and AI recommendations.
+                </p>
+                <div class="auth-btn-group">
+                    <div id="modal-gsi-slot" class="gsi-button-wrapper"></div>
+                    <button class="btn btn-primary" id="btn-demo-signin" style="width:100%">
+                        ⚡ Quick Demo Sign-In (Ahmad Al-Mutairi)
+                    </button>
+                    ${!state.authConfig?.google_client_id ? `
+                        <div style="font-size:0.75rem;color:var(--text-muted);margin-top:8px;line-height:1.4">
+                            💡 <em>To enable direct Google OAuth popups, set <code>GOOGLE_CLIENT_ID</code> in your <code>.env</code> file.</em>
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+
+        modalOverlay.style.display = 'flex';
+
+        if (state.authConfig?.google_client_id && window.google?.accounts?.id) {
+            const slot = $('modal-gsi-slot');
+            if (slot) {
+                google.accounts.id.renderButton(slot, {
+                    theme: 'filled_black',
+                    size: 'large',
+                    shape: 'pill',
+                    text: 'signin_with',
+                });
+            }
+        }
+
+        $('btn-demo-signin')?.addEventListener('click', async () => {
+            try {
+                showToast('Signing in with demo RM credentials...', 'info');
+                const data = await API.authGoogle('demo:ahmad.mutairi@warbabank.com:Ahmad Al-Mutairi');
+                state.currentUser = data.user;
+                updateUserUI();
+                showToast(`Welcome, ${data.user.name}!`, 'success');
+                modalOverlay.style.display = 'none';
+            } catch (err) {
+                showToast('Demo login error: ' + err.message, 'error');
+            }
+        });
     }
 
     // --- Dashboard ---
@@ -266,7 +476,6 @@
                 </div>
             `;
 
-            // Render recent opportunities (top 5)
             const recentOpps = opps.slice(0, 5);
             const oppList = $('dashboard-opps');
             if (recentOpps.length === 0) {
@@ -275,7 +484,6 @@
                 oppList.innerHTML = recentOpps.map(renderOppCard).join('');
             }
 
-            // Charts
             renderUrgencyChart(summary.urgency_breakdown || {});
             renderIndustriesChart(summary.top_industries || []);
 
@@ -362,7 +570,6 @@
 
             renderClientList(clients);
 
-            // Filters
             $('client-search').addEventListener('input', filterClients);
             $('client-industry-filter').addEventListener('change', filterClients);
             $('client-risk-filter').addEventListener('change', filterClients);
@@ -490,7 +697,6 @@
                 </div>
             `;
 
-            // Load existing opportunities for this client
             loadClientOpportunities(clientId);
 
         } catch (err) {
@@ -549,7 +755,7 @@
         }
     }
 
-    // --- Analyze Client (global function for onclick) ---
+    // --- Analyze Client ---
     window.analyzeClient = async function (clientId) {
         const btn = $('btn-analyze');
         if (btn) {
@@ -691,13 +897,11 @@
             await API.updateOppStatus(id, status);
             showToast(`Opportunity ${status.toLowerCase()}`, 'success');
 
-            // Refresh current view
             if (state.currentPage === 'opportunities') {
                 renderOpportunities();
             } else if (state.currentPage === 'dashboard') {
                 renderDashboard();
             } else if (state.currentPage === 'client') {
-                // Refresh just the opportunities section
                 const hash = window.location.hash.slice(1);
                 const clientId = hash.split('/')[1];
                 if (clientId) loadClientOpportunities(clientId);
@@ -751,7 +955,6 @@
 
             showToast(`Portfolio scan complete! Found ${opps.length} opportunities.`, 'success');
 
-            // Navigate to opportunities
             window.location.hash = 'opportunities';
 
         } catch (err) {
@@ -782,5 +985,6 @@
     });
 
     // --- Init ---
+    initAuth();
     initRouter();
 })();
