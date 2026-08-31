@@ -45,28 +45,6 @@ func VerifyGoogleIDToken(idToken, expectedClientID string) (*GoogleProfile, erro
 		return nil, errors.New("empty ID token provided")
 	}
 
-	// Handle Demo / Local Dev token bypass for offline testing
-	if strings.HasPrefix(idToken, "demo:") {
-		parts := strings.SplitN(idToken, ":", 3)
-		email := "ahmad.mutairi@warbabank.com"
-		name := "Ahmad Al-Mutairi"
-		if len(parts) >= 2 && parts[1] != "" {
-			email = parts[1]
-		}
-		if len(parts) >= 3 && parts[2] != "" {
-			name = parts[2]
-		}
-		return &GoogleProfile{
-			Sub:           "demo-" + url.QueryEscape(email),
-			Email:         email,
-			EmailVerified: true,
-			Name:          name,
-			Picture:       "",
-			Audience:      expectedClientID,
-			Issuer:        "accounts.google.com",
-		}, nil
-	}
-
 	tokenInfoURL := fmt.Sprintf("https://oauth2.googleapis.com/tokeninfo?id_token=%s", url.QueryEscape(idToken))
 	resp, err := httpClient.Get(tokenInfoURL)
 	if err != nil {

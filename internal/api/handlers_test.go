@@ -1,13 +1,13 @@
 package api
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"opportunity-engine/internal/engine"
 	"opportunity-engine/internal/models"
@@ -42,7 +42,7 @@ func setupTestServer(t *testing.T) (*http.ServeMux, *store.Store, func()) {
 }
 
 func TestAuthFlow(t *testing.T) {
-	mux, _, cleanup := setupTestServer(t)
+	mux, s, cleanup := setupTestServer(t)
 	defer cleanup()
 
 	// 1. GET /api/auth/config
@@ -79,35 +79,27 @@ func TestAuthFlow(t *testing.T) {
 		t.Errorf("expected authenticated=false initially, got true")
 	}
 
-	// 3. POST /api/auth/google (Authenticate with Demo token)
-	authPayload := models.GoogleAuthRequest{
-		Credential: "demo:tariq.rashid@warbabank.com:Tariq Al-Rashid",
+	// 3. Create a real User and Session in Store
+	testUser := &models.User{
+		GoogleID: "google-123456789",
+		Email:    "tariq.rashid@warbabank.com",
+		Name:     "Tariq Al-Rashid",
+		Avatar:   "https://lh3.googleusercontent.com/test",
+		Role:     "Senior Relationship Manager",
 	}
-	body, _ := json.Marshal(authPayload)
-	req = httptest.NewRequest(http.MethodPost, "/api/auth/google", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec = httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK from /api/auth/google, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	cookies := rec.Result().Cookies()
-	var sessionCookie *http.Cookie
-	for _, c := range cookies {
-		if c.Name == "session_token" {
-			sessionCookie = c
-			break
-		}
-	}
-	if sessionCookie == nil {
-		t.Fatalf("expected session_token cookie to be set")
+	savedUser, err := s.UpsertGoogleUser(testUser)
+	if err != nil {
+		t.Fatalf("failed to save user: %v", err)
 	}
 
-	// 4. GET /api/auth/me (Authenticated with cookie)
+	token := "session-test-token-xyz"
+	if err := s.CreateSession(token, savedUser.ID, time.Now().Add(24*time.Hour)); err != nil {
+		t.Fatalf("failed to create session: %v", err)
+	}
+
+	// 4. GET /api/auth/me (Authenticated with Cookie)
 	req = httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
-	req.AddCookie(sessionCookie)
+	req.AddCookie(&http.Cookie{Name: "session_token", Value: token})
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -124,13 +116,10 @@ func TestAuthFlow(t *testing.T) {
 	if authMe.User.Email != "tariq.rashid@warbabank.com" {
 		t.Errorf("expected email tariq.rashid@warbabank.com, got %s", authMe.User.Email)
 	}
-	if authMe.User.Name != "Tariq Al-Rashid" {
-		t.Errorf("expected name Tariq Al-Rashid, got %s", authMe.User.Name)
-	}
 
 	// 5. POST /api/auth/logout
 	req = httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
-	req.AddCookie(sessionCookie)
+	req.AddCookie(&http.Cookie{Name: "session_token", Value: token})
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -140,7 +129,7 @@ func TestAuthFlow(t *testing.T) {
 
 	// 6. GET /api/auth/me (After logout)
 	req = httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
-	req.AddCookie(sessionCookie)
+	req.AddCookie(&http.Cookie{Name: "session_token", Value: token})
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 

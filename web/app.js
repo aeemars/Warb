@@ -84,7 +84,7 @@
 
         state.currentPage = page;
 
-        // Update nav
+        // Update nav active classes
         document.querySelectorAll('.nav-item').forEach(item => {
             item.classList.toggle('active', item.dataset.page === page || (page === 'client' && item.dataset.page === 'clients'));
         });
@@ -96,17 +96,34 @@
             client: 'Client Detail',
             opportunities: 'Opportunities',
             products: 'Product Catalog',
+            login: 'Sign In with Google',
+            signin: 'Sign In with Google',
         };
         document.getElementById('page-title').textContent = titles[page] || 'Dashboard';
 
         // Render page
         switch (page) {
-            case 'dashboard': renderDashboard(); break;
-            case 'clients': renderClients(); break;
-            case 'client': renderClientDetail(param); break;
-            case 'opportunities': renderOpportunities(); break;
-            case 'products': renderProducts(); break;
-            default: renderDashboard();
+            case 'login':
+            case 'signin':
+                renderLoginPage();
+                break;
+            case 'dashboard':
+                renderDashboard();
+                break;
+            case 'clients':
+                renderClients();
+                break;
+            case 'client':
+                renderClientDetail(param);
+                break;
+            case 'opportunities':
+                renderOpportunities();
+                break;
+            case 'products':
+                renderProducts();
+                break;
+            default:
+                renderDashboard();
         }
     }
 
@@ -208,7 +225,7 @@
         </div>`;
     }
 
-    // --- Authentication & User Profile ---
+    // --- Google Authentication & User Profile ---
 
     async function initAuth() {
         try {
@@ -218,51 +235,87 @@
             ]);
 
             state.authConfig = cfg;
-            state.currentUser = me.authenticated ? me.user : null;
+            state.currentUser = me && me.authenticated ? me.user : null;
 
             updateUserUI();
 
-            // Set up Google Identity Services
-            if (cfg.google_client_id && window.google && window.google.accounts && window.google.accounts.id) {
-                google.accounts.id.initialize({
-                    client_id: cfg.google_client_id,
-                    callback: handleGoogleCredentialResponse,
-                    auto_select: false,
-                });
-                renderGoogleButtons();
-            } else if (cfg.google_client_id) {
-                window.addEventListener('load', () => {
-                    if (window.google && window.google.accounts && window.google.accounts.id) {
-                        google.accounts.id.initialize({
-                            client_id: cfg.google_client_id,
-                            callback: handleGoogleCredentialResponse,
-                            auto_select: false,
-                        });
-                        renderGoogleButtons();
+            if (cfg && cfg.google_client_id) {
+                const setupGSI = () => {
+                    if (window.google?.accounts?.id) {
+                        try {
+                            window.google.accounts.id.initialize({
+                                client_id: cfg.google_client_id,
+                                callback: window.handleGoogleCredentialResponse,
+                                auto_select: false,
+                            });
+                            renderGoogleButtons();
+                        } catch (e) {
+                            console.warn('[GSI] initialize error:', e);
+                        }
                     }
-                });
+                };
+
+                setupGSI();
+                window.addEventListener('load', setupGSI);
             }
         } catch (err) {
             console.warn('[Auth] init error:', err);
+        } finally {
+            updateUserUI();
         }
 
-        // Attach Logout Buttons
-        $('btn-sidebar-logout')?.addEventListener('click', handleLogout);
-        $('btn-header-logout')?.addEventListener('click', handleLogout);
-        $('btn-login-modal')?.addEventListener('click', openLoginModal);
+        // Event listeners
+        $('btn-sidebar-logout')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            handleLogout();
+        });
+        $('btn-header-logout')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            handleLogout();
+        });
+        $('btn-login-modal')?.addEventListener('click', () => {
+            window.location.hash = 'login';
+        });
+        $('user-profile-widget')?.addEventListener('click', (e) => {
+            if (!state.currentUser && e.target.id !== 'btn-sidebar-logout' && !e.target.closest('#btn-sidebar-logout')) {
+                window.location.hash = 'login';
+            }
+        });
     }
 
     function renderGoogleButtons() {
-        if (!state.currentUser && state.authConfig?.google_client_id) {
+        if (!state.currentUser && state.authConfig?.google_client_id && window.google?.accounts?.id) {
+            // Header slot
             const headerSlot = $('header-gsi-btn');
             if (headerSlot) {
                 headerSlot.innerHTML = '';
-                google.accounts.id.renderButton(headerSlot, {
-                    theme: 'filled_black',
-                    size: 'medium',
-                    shape: 'pill',
-                    text: 'signin_with',
-                });
+                try {
+                    window.google.accounts.id.renderButton(headerSlot, {
+                        theme: 'filled_black',
+                        size: 'medium',
+                        shape: 'pill',
+                        text: 'signin_with',
+                    });
+                } catch (e) {
+                    console.warn('[GSI] header renderButton error:', e);
+                }
+            }
+
+            // Page slot (if on login page)
+            const pageSlot = $('login-page-gsi-slot');
+            if (pageSlot) {
+                pageSlot.innerHTML = '';
+                try {
+                    window.google.accounts.id.renderButton(pageSlot, {
+                        theme: 'filled_black',
+                        size: 'large',
+                        shape: 'pill',
+                        text: 'signin_with',
+                        width: 280,
+                    });
+                } catch (e) {
+                    console.warn('[GSI] page renderButton error:', e);
+                }
             }
         }
     }
@@ -275,9 +328,13 @@
             state.currentUser = data.user;
             updateUserUI();
             showToast(`Welcome, ${data.user.name}!`, 'success');
-            $('modal-overlay').style.display = 'none';
+
+            // If on login page, navigate to dashboard
+            if (state.currentPage === 'login' || state.currentPage === 'signin') {
+                window.location.hash = 'dashboard';
+            }
         } catch (err) {
-            showToast('Sign-in failed: ' + err.message, 'error');
+            showToast('Google authentication failed: ' + err.message, 'error');
         }
     };
 
@@ -287,9 +344,7 @@
             state.currentUser = null;
             updateUserUI();
             showToast('Signed out successfully', 'info');
-            if (state.authConfig?.google_client_id && window.google?.accounts?.id) {
-                renderGoogleButtons();
-            }
+            window.location.hash = 'login';
         } catch (err) {
             showToast('Logout failed: ' + err.message, 'error');
         }
@@ -302,6 +357,7 @@
         const userRole = $('user-role');
         const userAvatar = $('user-avatar');
         const btnSidebarLogout = $('btn-sidebar-logout');
+        const userProfileWidget = $('user-profile-widget');
 
         const headerGsiSlot = $('header-gsi-btn');
         const btnLoginModal = $('btn-login-modal');
@@ -310,6 +366,7 @@
         const headerUserAvatar = $('header-user-avatar');
 
         if (u) {
+            // Authenticated State
             if (userName) userName.textContent = u.name;
             if (userRole) userRole.textContent = u.role || 'Senior RM';
             if (userAvatar) {
@@ -320,6 +377,10 @@
                 }
             }
             if (btnSidebarLogout) btnSidebarLogout.style.display = 'flex';
+            if (userProfileWidget) {
+                userProfileWidget.style.cursor = 'default';
+                userProfileWidget.title = `Signed in as ${u.email}`;
+            }
 
             if (headerGsiSlot) headerGsiSlot.style.display = 'none';
             if (btnLoginModal) btnLoginModal.style.display = 'none';
@@ -334,78 +395,84 @@
                 }
             }
         } else {
-            if (userName) userName.textContent = 'Ahmad Al-Mutairi';
-            if (userRole) userRole.textContent = 'Demo RM Profile';
-            if (userAvatar) userAvatar.textContent = 'AM';
+            // Unauthenticated State
+            if (userName) userName.textContent = 'Sign In to Warb';
+            if (userRole) userRole.textContent = 'Click to authenticate';
+            if (userAvatar) userAvatar.textContent = '🔑';
             if (btnSidebarLogout) btnSidebarLogout.style.display = 'none';
+            if (userProfileWidget) {
+                userProfileWidget.style.cursor = 'pointer';
+                userProfileWidget.title = 'Click to sign in with Google';
+            }
 
             if (headerUserPill) headerUserPill.style.display = 'none';
+            if (btnLoginModal) btnLoginModal.style.display = 'inline-flex';
 
             if (state.authConfig?.google_client_id) {
                 if (headerGsiSlot) headerGsiSlot.style.display = 'flex';
-                if (btnLoginModal) btnLoginModal.style.display = 'none';
                 renderGoogleButtons();
             } else {
                 if (headerGsiSlot) headerGsiSlot.style.display = 'none';
-                if (btnLoginModal) btnLoginModal.style.display = 'inline-flex';
             }
         }
     }
 
-    function openLoginModal() {
-        const modal = $('modal');
-        const modalTitle = $('modal-title');
-        const modalBody = $('modal-body');
-        const modalOverlay = $('modal-overlay');
+    // --- Dedicated Login Route (#login / #signin) ---
+    function renderLoginPage() {
+        const c = container();
 
-        modalTitle.textContent = 'Google Authentication';
-        modalBody.innerHTML = `
-            <div class="auth-modal-card">
-                <div class="auth-modal-icon">W</div>
-                <h3 class="auth-modal-title">Sign in to Warba Opportunity Engine</h3>
-                <p class="auth-modal-desc">
-                    Authenticate using your official Google account to access corporate relationship portfolios and AI recommendations.
-                </p>
-                <div class="auth-btn-group">
-                    <div id="modal-gsi-slot" class="gsi-button-wrapper"></div>
-                    <button class="btn btn-primary" id="btn-demo-signin" style="width:100%">
-                        ⚡ Quick Demo Sign-In (Ahmad Al-Mutairi)
-                    </button>
-                    ${!state.authConfig?.google_client_id ? `
-                        <div style="font-size:0.75rem;color:var(--text-muted);margin-top:8px;line-height:1.4">
-                            💡 <em>To enable direct Google OAuth popups, set <code>GOOGLE_CLIENT_ID</code> in your <code>.env</code> file.</em>
+        if (state.currentUser) {
+            c.innerHTML = `
+                <div class="login-page-container">
+                    <div class="login-card">
+                        <div class="login-logo-icon">W</div>
+                        <h2 class="login-title">Already Signed In</h2>
+                        <p class="login-subtitle">
+                            You are authenticated as <strong>${state.currentUser.name}</strong> (${state.currentUser.email}).
+                        </p>
+                        <div style="display:flex;gap:12px;justify-content:center">
+                            <button class="btn btn-primary" onclick="window.location.hash='dashboard'">Go to Dashboard</button>
+                            <button class="btn btn-danger" onclick="handleLogout()">Sign Out</button>
                         </div>
-                    ` : ''}
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
+        c.innerHTML = `
+            <div class="login-page-container">
+                <div class="login-card">
+                    <div class="login-logo-icon">W</div>
+                    <h2 class="login-title">Warba Bank — Opportunity Engine</h2>
+                    <p class="login-subtitle">
+                        Authenticate with your corporate Google Account to access relationship manager portfolios, Shariah-compliant product engines, and AI recommendations.
+                    </p>
+                    
+                    <div class="login-gsi-box">
+                        <div id="login-page-gsi-slot"></div>
+                    </div>
+
+                    <div class="login-footer-notes">
+                        🔒 <strong>Secure Google OAuth 2.0:</strong> Sessions are authenticated directly via Google Identity Services and encrypted for corporate compliance.
+                    </div>
                 </div>
             </div>
         `;
 
-        modalOverlay.style.display = 'flex';
-
-        if (state.authConfig?.google_client_id && window.google?.accounts?.id) {
-            const slot = $('modal-gsi-slot');
-            if (slot) {
-                google.accounts.id.renderButton(slot, {
-                    theme: 'filled_black',
-                    size: 'large',
-                    shape: 'pill',
-                    text: 'signin_with',
+        // Render Google Sign-In button on the login page
+        if (window.google?.accounts?.id && state.authConfig?.google_client_id) {
+            try {
+                window.google.accounts.id.initialize({
+                    client_id: state.authConfig.google_client_id,
+                    callback: window.handleGoogleCredentialResponse,
+                    auto_select: false,
                 });
+                renderGoogleButtons();
+            } catch (e) {
+                console.warn('[GSI] page init error:', e);
             }
         }
-
-        $('btn-demo-signin')?.addEventListener('click', async () => {
-            try {
-                showToast('Signing in with demo RM credentials...', 'info');
-                const data = await API.authGoogle('demo:ahmad.mutairi@warbabank.com:Ahmad Al-Mutairi');
-                state.currentUser = data.user;
-                updateUserUI();
-                showToast(`Welcome, ${data.user.name}!`, 'success');
-                modalOverlay.style.display = 'none';
-            } catch (err) {
-                showToast('Demo login error: ' + err.message, 'error');
-            }
-        });
     }
 
     // --- Dashboard ---
@@ -973,16 +1040,6 @@
             badge.style.display = count > 0 ? 'inline-block' : 'none';
         }
     }
-
-    // --- Modal ---
-    $('modal-close').addEventListener('click', () => {
-        $('modal-overlay').style.display = 'none';
-    });
-    $('modal-overlay').addEventListener('click', (e) => {
-        if (e.target === $('modal-overlay')) {
-            $('modal-overlay').style.display = 'none';
-        }
-    });
 
     // --- Init ---
     initAuth();

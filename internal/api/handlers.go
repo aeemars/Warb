@@ -86,9 +86,10 @@ func (h *Handlers) handleAuthConfig(w http.ResponseWriter, r *http.Request) {
 		h.methodNotAllowed(w)
 		return
 	}
+	clientID := strings.TrimSpace(h.googleClientID)
 	h.jsonOK(w, models.AuthConfigResponse{
-		GoogleClientID: h.googleClientID,
-		Enabled:        h.googleClientID != "",
+		GoogleClientID: clientID,
+		Enabled:        clientID != "",
 	})
 }
 
