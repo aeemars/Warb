@@ -1,0 +1,17 @@
+.env
+.env.*
+.git
+.gitignore
+.idea
+.vscode
+bin/
+data/
+*.db
+*.db-journal
+*.db-wal
+*.md
+*.log
+tmp/
+temp/
+render.yaml
+Makefile
