@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -43,7 +44,7 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/auth/me", h.handleAuthMe)
 	mux.HandleFunc("/api/auth/logout", h.handleAuthLogout)
 
-	// Domain routes
+	// Domain routes (all require authentication)
 	mux.HandleFunc("/api/clients", h.handleListClients)
 	mux.HandleFunc("/api/clients/", h.handleClientRoutes)
 	mux.HandleFunc("/api/opportunities", h.handleListOpportunities)
@@ -54,6 +55,7 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 }
 
 // --- API Root Handler ---
+// FINDING-14 FIX: Minimize information disclosure — return only status.
 
 func (h *Handlers) handleAPIRoot(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/api" && r.URL.Path != "/api/" {
@@ -61,24 +63,8 @@ func (h *Handlers) handleAPIRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.jsonOK(w, map[string]interface{}{
-		"name":        "Warba Bank — Proactive Client Opportunity Engine API",
-		"status":      "online",
-		"dashboard":   "/",
-		"auth_google": h.googleClientID != "",
-		"endpoints": map[string]string{
-			"GET  /api/auth/config":         "Get public auth configuration and Google Client ID",
-			"POST /api/auth/google":         "Authenticate with Google ID token credential",
-			"GET  /api/auth/me":             "Get currently authenticated user profile",
-			"POST /api/auth/logout":         "Log out and invalidate session",
-			"GET  /api/clients":             "List user's corporate clients",
-			"GET  /api/clients/:id":         "Get single client with history and product holdings",
-			"POST /api/clients/:id/analyze": "Trigger AI opportunity analysis for a client",
-			"GET  /api/opportunities":      "List user's opportunities (filters: status, urgency, client_id)",
-			"PATCH /api/opportunities/:id":  "Update opportunity status (New, Reviewed, Accepted, Dismissed, Converted)",
-			"POST /api/portfolio/scan":      "Trigger AI scan across user's portfolio",
-			"GET  /api/portfolio/summary":   "Get user's portfolio metrics and breakdown stats",
-			"GET  /api/products":            "List Warba Bank Shariah-compliant product catalog",
-		},
+		"name":   "Warba Bank — Opportunity Engine API",
+		"status": "online",
 	})
 }
 
@@ -113,11 +99,26 @@ func (h *Handlers) handleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// FINDING-07 FIX: Require a configured Google Client ID for audience validation.
+	if h.googleClientID == "" {
+		log.Printf("[Auth] REJECTED: Google Client ID not configured — refusing authentication")
+		h.serverError(w, "Authentication is not configured on this server", nil)
+		return
+	}
+
 	// Verify Google ID Token
 	profile, err := auth.VerifyGoogleIDToken(req.Credential, h.googleClientID)
 	if err != nil {
 		log.Printf("[Auth] Google token verification failed: %v", err)
-		h.badRequest(w, "Invalid Google ID token: "+err.Error())
+		// FINDING-15 FIX: Don't leak internal error details to client.
+		h.badRequest(w, "Google authentication failed. Please try again.")
+		return
+	}
+
+	// FINDING-08 FIX: Enforce email verification.
+	if !profile.EmailVerified {
+		log.Printf("[Auth] REJECTED: unverified email %s (sub: %s)", profile.Email, profile.Sub)
+		h.badRequest(w, "Your Google email address is not verified. Please verify your email and try again.")
 		return
 	}
 
@@ -129,17 +130,22 @@ func (h *Handlers) handleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 		Role:     "Senior Relationship Manager",
 	}
 
-	// Upsert user in database
-	savedUser, err := h.store.UpsertGoogleUser(user)
+	// FINDING-12 FIX: Upsert uses google_id-first lookup (see store.go).
+	savedUser, isNewUser, err := h.store.UpsertGoogleUser(user)
 	if err != nil {
 		h.serverError(w, "Failed to save user account", err)
 		return
 	}
 
-	// Auto-seed personalized client portfolio for first-time user
-	if err := h.store.SeedUserPortfolio(savedUser.ID, savedUser.Name); err != nil {
-		log.Printf("[Auth] Warning: portfolio seed failed for %s: %v", savedUser.ID, err)
+	// FINDING-13 FIX: Only seed portfolio for genuinely new users.
+	if isNewUser {
+		if err := h.store.SeedUserPortfolio(savedUser.ID, savedUser.Name); err != nil {
+			log.Printf("[Auth] Warning: portfolio seed failed for %s: %v", savedUser.ID, err)
+		}
 	}
+
+	// FINDING-16 FIX: Revoke all existing sessions on new login for this user.
+	_ = h.store.DeleteUserSessions(savedUser.ID)
 
 	// Create Session Token
 	sessionToken := generateSecureToken(32)
@@ -149,21 +155,25 @@ func (h *Handlers) handleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set HTTP Session Cookie
+	// FINDING-04 FIX: Add Secure flag. Conditionally based on environment.
+	isSecure := os.Getenv("ENV") != "development"
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session_token",
 		Value:    sessionToken,
 		Path:     "/",
 		Expires:  expiresAt,
 		HttpOnly: true,
+		Secure:   isSecure,
 		SameSite: http.SameSiteLaxMode,
 	})
 
 	log.Printf("[Auth] User successfully logged in: %s (%s)", savedUser.Name, savedUser.Email)
+
+	// FINDING-02 FIX: Do NOT return the session token in the JSON body.
+	// The HttpOnly cookie is the sole bearer of the session.
 	h.jsonOK(w, map[string]interface{}{
 		"user":          savedUser,
 		"authenticated": true,
-		"token":         sessionToken,
 	})
 }
 
@@ -199,7 +209,8 @@ func (h *Handlers) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 		_ = h.store.DeleteSession(token)
 	}
 
-	// Clear cookie
+	// FINDING-04 FIX: Add Secure flag on clear cookie too.
+	isSecure := os.Getenv("ENV") != "development"
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session_token",
 		Value:    "",
@@ -207,6 +218,7 @@ func (h *Handlers) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   -1,
 		Expires:  time.Unix(0, 0),
 		HttpOnly: true,
+		Secure:   isSecure,
 		SameSite: http.SameSiteLaxMode,
 	})
 
@@ -317,7 +329,9 @@ func (h *Handlers) handleAnalyzeClient(w http.ResponseWriter, r *http.Request, u
 
 	opportunities, err := h.engine.AnalyzeClient(r.Context(), userID, clientID)
 	if err != nil {
-		h.serverError(w, "AI analysis failed", err)
+		// FINDING-15 FIX: generic message to client.
+		log.Printf("[API] AI analysis error for client %s: %v", clientID, err)
+		h.serverError(w, "AI analysis could not be completed. Please try again.", nil)
 		return
 	}
 	if opportunities == nil {
@@ -415,7 +429,9 @@ func (h *Handlers) handlePortfolioScan(w http.ResponseWriter, r *http.Request) {
 
 	opportunities, err := h.engine.ScanPortfolio(r.Context(), user.ID)
 	if err != nil {
-		h.serverError(w, "Portfolio scan failed", err)
+		// FINDING-15 FIX: generic message to client.
+		log.Printf("[API] Portfolio scan error for user %s: %v", user.ID, err)
+		h.serverError(w, "Portfolio scan could not be completed. Please try again.", nil)
 		return
 	}
 	if opportunities == nil {
@@ -445,10 +461,16 @@ func (h *Handlers) handlePortfolioSummary(w http.ResponseWriter, r *http.Request
 }
 
 // --- Product Handlers ---
+// FINDING-11 FIX: Require authentication for product listing.
 
 func (h *Handlers) handleListProducts(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		h.methodNotAllowed(w)
+		return
+	}
+
+	_, ok := h.requireUser(w, r)
+	if !ok {
 		return
 	}
 
@@ -495,8 +517,13 @@ func (h *Handlers) methodNotAllowed(w http.ResponseWriter) {
 	json.NewEncoder(w).Encode(models.APIResponse{Success: false, Error: "Method not allowed"})
 }
 
+// FINDING-15 FIX: Never expose internal error details to clients.
 func (h *Handlers) serverError(w http.ResponseWriter, msg string, err error) {
-	log.Printf("[API] Error: %s: %v", msg, err)
+	if err != nil {
+		log.Printf("[API] Error: %s: %v", msg, err)
+	} else {
+		log.Printf("[API] Error: %s", msg)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusInternalServerError)
 	json.NewEncoder(w).Encode(models.APIResponse{Success: false, Error: msg})

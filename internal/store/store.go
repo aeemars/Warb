@@ -538,7 +538,9 @@ func (s *Store) GetPortfolioSummary(userID string) (*models.PortfolioSummary, er
 
 // --- Users & Sessions ---
 
-func (s *Store) UpsertGoogleUser(u *models.User) (*models.User, error) {
+// FINDING-12 FIX: Lookup by google_id first (primary identity), then email only for initial match.
+// FINDING-13 FIX: Returns isNewUser bool so callers can conditionally seed data.
+func (s *Store) UpsertGoogleUser(u *models.User) (*models.User, bool, error) {
 	now := time.Now().Format(time.RFC3339)
 	if u.Role == "" {
 		u.Role = "Senior Relationship Manager"
@@ -546,34 +548,39 @@ func (s *Store) UpsertGoogleUser(u *models.User) (*models.User, error) {
 
 	var existing models.User
 	var createdAtStr, lastLoginStr string
+
+	// First try: exact match on google_id (the immutable identity).
 	err := s.db.QueryRow(`
 		SELECT id, google_id, email, name, avatar, role, created_at, last_login
 		FROM users
-		WHERE google_id = ? OR email = ?
-	`, u.GoogleID, u.Email).Scan(
+		WHERE google_id = ?
+	`, u.GoogleID).Scan(
 		&existing.ID, &existing.GoogleID, &existing.Email, &existing.Name,
 		&existing.Avatar, &existing.Role, &createdAtStr, &lastLoginStr,
 	)
 
 	if err == sql.ErrNoRows {
+		// New user — insert.
 		if u.ID == "" {
 			u.ID = "usr-" + uuid.New().String()[:8]
 		}
 		u.CreatedAt = time.Now()
 		u.LastLogin = time.Now()
-		_, err := s.db.Exec(`
+		_, insertErr := s.db.Exec(`
 			INSERT INTO users (id, google_id, email, name, avatar, role, created_at, last_login)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		`, u.ID, u.GoogleID, u.Email, u.Name, u.Avatar, u.Role, now, now)
-		if err != nil {
-			return nil, fmt.Errorf("inserting user: %w", err)
+		if insertErr != nil {
+			return nil, false, fmt.Errorf("inserting user: %w", insertErr)
 		}
-		return u, nil
+		return u, true, nil
 	} else if err != nil {
-		return nil, fmt.Errorf("querying user: %w", err)
+		return nil, false, fmt.Errorf("querying user: %w", err)
 	}
 
+	// Existing user — update profile fields.
 	existing.GoogleID = u.GoogleID
+	existing.Email = u.Email // keep email in sync with Google
 	existing.Name = u.Name
 	if u.Avatar != "" {
 		existing.Avatar = u.Avatar
@@ -583,14 +590,14 @@ func (s *Store) UpsertGoogleUser(u *models.User) (*models.User, error) {
 
 	_, err = s.db.Exec(`
 		UPDATE users
-		SET google_id = ?, name = ?, avatar = ?, last_login = ?
+		SET google_id = ?, email = ?, name = ?, avatar = ?, last_login = ?
 		WHERE id = ?
-	`, existing.GoogleID, existing.Name, existing.Avatar, now, existing.ID)
+	`, existing.GoogleID, existing.Email, existing.Name, existing.Avatar, now, existing.ID)
 	if err != nil {
-		return nil, fmt.Errorf("updating user: %w", err)
+		return nil, false, fmt.Errorf("updating user: %w", err)
 	}
 
-	return &existing, nil
+	return &existing, false, nil
 }
 
 func (s *Store) CreateSession(token, userID string, expiresAt time.Time) error {
@@ -635,4 +642,20 @@ func (s *Store) GetUserBySession(token string) (*models.User, error) {
 func (s *Store) DeleteSession(token string) error {
 	_, err := s.db.Exec("DELETE FROM sessions WHERE token = ?", token)
 	return err
+}
+
+// FINDING-16 FIX: Revoke all sessions for a user (used on re-login).
+func (s *Store) DeleteUserSessions(userID string) error {
+	_, err := s.db.Exec("DELETE FROM sessions WHERE user_id = ?", userID)
+	return err
+}
+
+// FINDING-17 FIX: Garbage-collect expired sessions.
+func (s *Store) PurgeExpiredSessions() (int64, error) {
+	result, err := s.db.Exec("DELETE FROM sessions WHERE expires_at < ?", time.Now().Format(time.RFC3339))
+	if err != nil {
+		return 0, err
+	}
+	n, _ := result.RowsAffected()
+	return n, nil
 }

@@ -147,6 +147,17 @@
     function $(id) { return document.getElementById(id); }
     function container() { return $('page-container'); }
 
+    // FINDING-03/10 FIX: HTML-escape all dynamic content before innerHTML injection.
+    function escapeHtml(str) {
+        if (!str && str !== 0) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     function formatKWD(amount) {
         if (amount >= 1000000) return 'KWD ' + (amount / 1000000).toFixed(1) + 'M';
         if (amount >= 1000) return 'KWD ' + (amount / 1000).toFixed(0) + 'K';
@@ -343,7 +354,7 @@
             const data = await API.authGoogle(response.credential);
             state.currentUser = data.user;
             updateUserUI();
-            showToast(`Welcome, ${data.user.name}!`, 'success');
+            showToast(`Welcome, ${escapeHtml(data.user.name)}!`, 'success');
 
             // If on login page, navigate to dashboard
             if (state.currentPage === 'login' || state.currentPage === 'signin') {
@@ -387,7 +398,7 @@
             if (userRole) userRole.textContent = u.role || 'Senior RM';
             if (userAvatar) {
                 if (u.avatar) {
-                    userAvatar.innerHTML = `<img src="${u.avatar}" alt="${u.name}" onerror="this.parentElement.textContent='${initials(u.name)}'" />`;
+                    userAvatar.innerHTML = `<img src="${escapeHtml(u.avatar)}" alt="${escapeHtml(u.name)}" onerror="this.parentElement.textContent='${escapeHtml(initials(u.name))}'" />`;
                 } else {
                     userAvatar.textContent = initials(u.name);
                 }
@@ -444,7 +455,7 @@
                         <div class="login-logo-icon">W</div>
                         <h2 class="login-title">Already Signed In</h2>
                         <p class="login-subtitle">
-                            You are authenticated as <strong>${state.currentUser.name}</strong> (${state.currentUser.email}).
+                            You are authenticated as <strong>${escapeHtml(state.currentUser.name)}</strong> (${escapeHtml(state.currentUser.email)}).
                         </p>
                         <div style="display:flex;gap:12px;justify-content:center">
                             <button class="btn btn-primary" onclick="window.location.hash='dashboard'">Go to Dashboard</button>
@@ -571,7 +582,7 @@
             renderIndustriesChart(summary.top_industries || []);
 
         } catch (err) {
-            c.innerHTML = `<div class="empty-state"><p>Error loading dashboard</p><p class="sub">${err.message}</p></div>`;
+            c.innerHTML = `<div class="empty-state"><p>Error loading dashboard</p><p class="sub">${escapeHtml(err.message)}</p></div>`;
         }
     }
 
@@ -658,7 +669,7 @@
             $('client-risk-filter').addEventListener('change', filterClients);
 
         } catch (err) {
-            c.innerHTML = `<div class="empty-state"><p>Error loading clients</p><p class="sub">${err.message}</p></div>`;
+            c.innerHTML = `<div class="empty-state"><p>Error loading clients</p><p class="sub">${escapeHtml(err.message)}</p></div>`;
         }
     }
 
@@ -685,11 +696,11 @@
 
         el.innerHTML = clients.map((cl, i) => `
             <div class="client-card" data-id="${cl.id}" onclick="window.location.hash='client/${cl.id}'" style="animation-delay:${i * 0.03}s">
-                <div class="client-avatar" style="background:${industryColor(cl.industry)}22; color:${industryColor(cl.industry)}">${initials(cl.name)}</div>
+                <div class="client-avatar" style="background:${industryColor(cl.industry)}22; color:${industryColor(cl.industry)}">${escapeHtml(initials(cl.name))}</div>
                 <div class="client-info">
-                    <div class="client-name">${cl.name}</div>
+                    <div class="client-name">${escapeHtml(cl.name)}</div>
                     <div class="client-meta">
-                        <span class="industry-chip industry-${industryClass(cl.industry)}">${cl.industry}</span>
+                        <span class="industry-chip industry-${industryClass(cl.industry)}">${escapeHtml(cl.industry)}</span>
                         <span class="badge risk-${cl.risk_rating.toLowerCase()}">${cl.risk_rating} Risk</span>
                         <span>${cl.employee_count} employees</span>
                     </div>
@@ -711,11 +722,11 @@
                 <button class="back-btn" onclick="window.location.hash='clients'">← Back to Clients</button>
 
                 <div class="client-detail-header">
-                    <div class="client-detail-avatar" style="background:${industryColor(client.industry)}22; color:${industryColor(client.industry)}">${initials(client.name)}</div>
+                    <div class="client-detail-avatar" style="background:${industryColor(client.industry)}22; color:${industryColor(client.industry)}">${escapeHtml(initials(client.name))}</div>
                     <div class="client-detail-info">
-                        <h2>${client.name}</h2>
+                        <h2>${escapeHtml(client.name)}</h2>
                         <div class="client-meta">
-                            <span class="industry-chip industry-${industryClass(client.industry)}">${client.industry} — ${client.sub_industry}</span>
+                            <span class="industry-chip industry-${industryClass(client.industry)}">${escapeHtml(client.industry)} — ${escapeHtml(client.sub_industry)}</span>
                             <span class="badge risk-${client.risk_rating.toLowerCase()}">${client.risk_rating} Risk</span>
                             ${client.kyc_status !== 'Active' ? `<span class="badge badge-critical">KYC: ${client.kyc_status}</span>` : ''}
                         </div>
@@ -757,7 +768,7 @@
 
                 ${client.notes ? `<div class="card" style="margin-bottom:20px;padding:16px 20px">
                     <div class="detail-label" style="margin-bottom:8px">Notes</div>
-                    <p style="font-size:0.88rem;color:var(--text-secondary);line-height:1.6">${client.notes}</p>
+                    <p style="font-size:0.88rem;color:var(--text-secondary);line-height:1.6">${escapeHtml(client.notes)}</p>
                 </div>` : ''}
 
                 <div class="section-header">
@@ -783,7 +794,7 @@
             loadClientOpportunities(clientId);
 
         } catch (err) {
-            c.innerHTML = `<div class="empty-state"><p>Error loading client</p><p class="sub">${err.message}</p></div>`;
+            c.innerHTML = `<div class="empty-state"><p>Error loading client</p><p class="sub">${escapeHtml(err.message)}</p></div>`;
         }
     }
 
@@ -800,7 +811,7 @@
             </tr></thead>
             <tbody>
                 ${products.map(p => `<tr>
-                    <td style="color:var(--text-primary);font-weight:500">${p.product_name}</td>
+                    <td style="color:var(--text-primary);font-weight:500">${escapeHtml(p.product_name)}</td>
                     <td style="color:var(--accent);font-family:var(--font-display);font-weight:600">${formatKWD(p.amount_kwd)}</td>
                     <td>${p.start_date}</td>
                     <td><span class="badge badge-${p.status === 'Active' ? 'accepted' : 'dismissed'}">${p.status}</span></td>
@@ -817,8 +828,8 @@
             ${interactions.map(i => `<div class="timeline-item">
                 <div class="timeline-date">${i.date} ${timeAgo(i.date) !== i.date ? '· ' + timeAgo(i.date) : ''}</div>
                 <span class="timeline-type ${i.type}">${i.type}</span>
-                <div class="timeline-summary">${i.summary}</div>
-                ${i.outcome ? `<div class="timeline-outcome">→ ${i.outcome}</div>` : ''}
+                <div class="timeline-summary">${escapeHtml(i.summary)}</div>
+                ${i.outcome ? `<div class="timeline-outcome">→ ${escapeHtml(i.outcome)}</div>` : ''}
             </div>`).join('')}
         </div>`;
     }
@@ -907,7 +918,7 @@
             $('opp-urgency-filter').addEventListener('change', filterOpps);
 
         } catch (err) {
-            c.innerHTML = `<div class="empty-state"><p>Error loading opportunities</p><p class="sub">${err.message}</p></div>`;
+            c.innerHTML = `<div class="empty-state"><p>Error loading opportunities</p><p class="sub">${escapeHtml(err.message)}</p></div>`;
         }
     }
 
@@ -969,9 +980,9 @@
             <div class="opp-header">
                 <div class="opp-title-group">
                     <div class="opp-client-name">
-                        <a href="#client/${opp.client_id}" style="color:inherit;text-decoration:none">${opp.client_name || opp.client_id}</a>
+                        <a href="#client/${escapeHtml(opp.client_id)}" style="color:inherit;text-decoration:none">${escapeHtml(opp.client_name || opp.client_id)}</a>
                     </div>
-                    <div class="opp-product-name">${opp.product_name || opp.product_id}</div>
+                    <div class="opp-product-name">${escapeHtml(opp.product_name || opp.product_id)}</div>
                 </div>
                 <div class="opp-meta" id="opp-meta-${opp.id}">
                     ${statusBadge(opp.status)}
@@ -979,9 +990,9 @@
                     ${confidenceMeter(opp.confidence)}
                 </div>
             </div>
-            <div class="opp-reasoning">${opp.reasoning}</div>
-            ${opp.next_action ? `<div class="opp-next-action"><strong>Next Action:</strong> ${opp.next_action}</div>` : ''}
-            ${opp.shariah_notes ? `<div class="opp-shariah">${opp.shariah_notes}</div>` : ''}
+            <div class="opp-reasoning">${escapeHtml(opp.reasoning)}</div>
+            ${opp.next_action ? `<div class="opp-next-action"><strong>Next Action:</strong> ${escapeHtml(opp.next_action)}</div>` : ''}
+            ${opp.shariah_notes ? `<div class="opp-shariah">${escapeHtml(opp.shariah_notes)}</div>` : ''}
             <div class="opp-actions" id="opp-actions-${opp.id}">
                 ${renderOppActions(opp)}
             </div>
@@ -1079,12 +1090,12 @@
                 <div class="products-grid">
                     ${products.map(p => `
                         <div class="product-card">
-                            <div class="product-category">${p.category}</div>
-                            <div class="product-name">${p.name}</div>
-                            ${p.name_ar ? `<div class="product-name-ar">${p.name_ar}</div>` : ''}
-                            <div class="product-description">${p.description}</div>
+                            <div class="product-category">${escapeHtml(p.category)}</div>
+                            <div class="product-name">${escapeHtml(p.name)}</div>
+                            ${p.name_ar ? `<div class="product-name-ar">${escapeHtml(p.name_ar)}</div>` : ''}
+                            <div class="product-description">${escapeHtml(p.description)}</div>
                             <div class="product-details">
-                                <span class="product-tag">📜 ${p.shariah_structure}</span>
+                                <span class="product-tag">📜 ${escapeHtml(p.shariah_structure)}</span>
                                 <span class="product-tag">💰 ${formatKWD(p.min_amount_kwd)} – ${formatKWD(p.max_amount_kwd)}</span>
                                 <span class="product-tag">📅 ${p.typical_tenure_months} months</span>
                             </div>
@@ -1093,7 +1104,7 @@
                 </div>
             `;
         } catch (err) {
-            c.innerHTML = `<div class="empty-state"><p>Error loading products</p><p class="sub">${err.message}</p></div>`;
+            c.innerHTML = `<div class="empty-state"><p>Error loading products</p><p class="sub">${escapeHtml(err.message)}</p></div>`;
         }
     }
 

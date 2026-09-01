@@ -47,7 +47,7 @@ func TestStoreCRUDAndUserIsolation(t *testing.T) {
 	}
 
 	// 2. Create User 1 and User 2
-	user1, err := s.UpsertGoogleUser(&models.User{
+	user1, _, err := s.UpsertGoogleUser(&models.User{
 		GoogleID: "gid-user-1",
 		Email:    "user1@warbabank.com",
 		Name:     "Tariq Al-Rashid",
@@ -56,7 +56,7 @@ func TestStoreCRUDAndUserIsolation(t *testing.T) {
 		t.Fatalf("upsert user 1 failed: %v", err)
 	}
 
-	user2, err := s.UpsertGoogleUser(&models.User{
+	user2, _, err := s.UpsertGoogleUser(&models.User{
 		GoogleID: "gid-user-2",
 		Email:    "user2@warbabank.com",
 		Name:     "Fatima Al-Rashidi",
@@ -137,7 +137,7 @@ func TestUserAndSessionStore(t *testing.T) {
 		Role:     "Senior Relationship Manager",
 	}
 
-	saved, err := s.UpsertGoogleUser(u)
+	saved, _, err := s.UpsertGoogleUser(u)
 	if err != nil {
 		t.Fatalf("UpsertGoogleUser failed: %v", err)
 	}

@@ -45,6 +45,12 @@ func VerifyGoogleIDToken(idToken, expectedClientID string) (*GoogleProfile, erro
 		return nil, errors.New("empty ID token provided")
 	}
 
+	// FINDING-07 FIX: Always require a configured Client ID for audience validation.
+	expectedClientID = strings.TrimSpace(expectedClientID)
+	if expectedClientID == "" {
+		return nil, errors.New("server misconfigured: no Google Client ID set for audience validation")
+	}
+
 	tokenInfoURL := fmt.Sprintf("https://oauth2.googleapis.com/tokeninfo?id_token=%s", url.QueryEscape(idToken))
 	resp, err := httpClient.Get(tokenInfoURL)
 	if err != nil {
@@ -75,9 +81,9 @@ func VerifyGoogleIDToken(idToken, expectedClientID string) (*GoogleProfile, erro
 		return nil, fmt.Errorf("invalid token issuer: %s", ti.Iss)
 	}
 
-	// If a Google Client ID is configured, verify audience matches
-	if expectedClientID != "" && ti.Aud != expectedClientID {
-		return nil, fmt.Errorf("token audience (%s) does not match expected Client ID (%s)", ti.Aud, expectedClientID)
+	// FINDING-07 FIX: Audience validation is now unconditional.
+	if ti.Aud != expectedClientID {
+		return nil, fmt.Errorf("token audience does not match expected Client ID")
 	}
 
 	return &GoogleProfile{

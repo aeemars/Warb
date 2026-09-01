@@ -55,7 +55,7 @@ func TestAuthAndUserIsolationAPI(t *testing.T) {
 	}
 
 	// 2. Create User 1 and User 2 in Store
-	u1, err := s.UpsertGoogleUser(&models.User{
+	u1, _, err := s.UpsertGoogleUser(&models.User{
 		GoogleID: "gid-1",
 		Email:    "tariq@warbabank.com",
 		Name:     "Tariq Al-Rashid",
@@ -65,7 +65,7 @@ func TestAuthAndUserIsolationAPI(t *testing.T) {
 	}
 	_ = s.SeedUserPortfolio(u1.ID, u1.Name)
 
-	u2, err := s.UpsertGoogleUser(&models.User{
+	u2, _, err := s.UpsertGoogleUser(&models.User{
 		GoogleID: "gid-2",
 		Email:    "fatima@warbabank.com",
 		Name:     "Fatima Al-Rashidi",

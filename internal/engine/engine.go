@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -14,6 +15,21 @@ import (
 
 	openai "github.com/sashabaranov/go-openai"
 )
+
+// FINDING-03 FIX: Strip HTML/script tags from AI output before persistence.
+var htmlTagRegex = regexp.MustCompile(`<[^>]*>`)
+
+func sanitizeAIField(s string) string {
+	// Remove any HTML tags
+	s = htmlTagRegex.ReplaceAllString(s, "")
+	// Remove javascript: URLs
+	s = strings.ReplaceAll(s, "javascript:", "")
+	// Limit field length to prevent DB bloat
+	if len(s) > 2000 {
+		s = s[:2000] + "..."
+	}
+	return strings.TrimSpace(s)
+}
 
 // openRouterTransport adds OpenRouter-specific headers to requests.
 type openRouterTransport struct {
@@ -131,6 +147,7 @@ func (e *Engine) AnalyzeClient(ctx context.Context, userID, clientID string) ([]
 	var opportunities []models.Opportunity
 	now := time.Now()
 	for _, s := range suggestions {
+		// FINDING-03 FIX: Sanitize all AI-generated text fields before persistence.
 		opp := models.Opportunity{
 			ID:           fmt.Sprintf("opp-%s-%s-%d", clientID, s.ProductID, now.UnixMilli()),
 			UserID:       userID,
@@ -138,18 +155,28 @@ func (e *Engine) AnalyzeClient(ctx context.Context, userID, clientID string) ([]
 			ClientName:   client.Name,
 			ProductID:    s.ProductID,
 			Confidence:   s.Confidence,
-			Urgency:      models.Urgency(s.Urgency),
-			Reasoning:    s.Reasoning,
-			NextAction:   s.NextAction,
-			ShariahNotes: s.ShariahNotes,
+			Urgency:      models.Urgency(sanitizeAIField(s.Urgency)),
+			Reasoning:    sanitizeAIField(s.Reasoning),
+			NextAction:   sanitizeAIField(s.NextAction),
+			ShariahNotes: sanitizeAIField(s.ShariahNotes),
 			Status:       models.OpportunityNew,
 			CreatedAt:    now,
 		}
 
-		// Look up product name
+		// Validate confidence range
+		if opp.Confidence < 0 {
+			opp.Confidence = 0
+		} else if opp.Confidence > 1 {
+			opp.Confidence = 1
+		}
+
+		// Validate product_id exists in catalog
 		prod, _ := e.store.GetProduct(s.ProductID)
 		if prod != nil {
 			opp.ProductName = prod.Name
+		} else {
+			log.Printf("[Engine] Warning: AI suggested unknown product_id %q, skipping", s.ProductID)
+			continue
 		}
 
 		// Persist
@@ -240,21 +267,29 @@ func (e *Engine) ScanPortfolio(ctx context.Context, userID string) ([]models.Opp
 	var opportunities []models.Opportunity
 	now := time.Now()
 	for _, s := range portfolioSuggestions {
+		// FINDING-03 FIX: Sanitize all AI-generated text fields before persistence.
 		opp := models.Opportunity{
 			ID:           fmt.Sprintf("opp-%s-%s-%d", s.ClientID, s.ProductID, now.UnixMilli()),
 			UserID:       userID,
 			ClientID:     s.ClientID,
 			ProductID:    s.ProductID,
 			Confidence:   s.Confidence,
-			Urgency:      models.Urgency(s.Urgency),
-			Reasoning:    s.Reasoning,
-			NextAction:   s.NextAction,
-			ShariahNotes: s.ShariahNotes,
+			Urgency:      models.Urgency(sanitizeAIField(s.Urgency)),
+			Reasoning:    sanitizeAIField(s.Reasoning),
+			NextAction:   sanitizeAIField(s.NextAction),
+			ShariahNotes: sanitizeAIField(s.ShariahNotes),
 			Status:       models.OpportunityNew,
 			CreatedAt:    now,
 		}
 
-		// Look up names
+		// Validate confidence range
+		if opp.Confidence < 0 {
+			opp.Confidence = 0
+		} else if opp.Confidence > 1 {
+			opp.Confidence = 1
+		}
+
+		// Look up and validate names
 		client, _ := e.store.GetClient(userID, s.ClientID)
 		if client != nil {
 			opp.ClientName = client.Name
@@ -262,6 +297,9 @@ func (e *Engine) ScanPortfolio(ctx context.Context, userID string) ([]models.Opp
 		prod, _ := e.store.GetProduct(s.ProductID)
 		if prod != nil {
 			opp.ProductName = prod.Name
+		} else {
+			log.Printf("[Engine] Warning: AI suggested unknown product_id %q, skipping", s.ProductID)
+			continue
 		}
 
 		if err := e.store.InsertOpportunity(opp); err != nil {
