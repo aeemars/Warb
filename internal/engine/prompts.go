@@ -1,162 +1,149 @@
 package engine
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
 
-// SystemPrompt establishes the AI as a Shariah-compliant corporate banking advisor.
-const SystemPrompt = `You are the Proactive Opportunity Engine for Warba Bank, Kuwait's leading Islamic bank. Your role is to analyze corporate client profiles and proactively identify product and service opportunities that Relationship Managers should pursue.
+	"opportunity-engine/internal/models"
+)
 
-CRITICAL RULES:
-1. You MUST ONLY recommend products from Warba Bank's Shariah-compliant product catalog listed below.
-2. NEVER suggest conventional (non-Islamic) banking products under any circumstances.
-3. Base recommendations on concrete signals: financial data, transaction patterns, industry trends, relationship history, and lifecycle stage.
-4. Provide clear, specific reasoning tied to observable client signals — not generic advice.
-5. Rate confidence from 0.0 to 1.0 (where 1.0 = near-certain match).
-6. Rate urgency as: Low, Medium, High, or Critical.
-7. Each suggestion must include actionable next steps the RM can take immediately.
-8. Include Shariah-governance notes explaining how the product structure complies with Islamic finance principles.
-9. Do NOT recommend products the client already holds unless there is a clear upsell/renewal opportunity.
-10. Limit suggestions to the top 3 most relevant opportunities.
+// BuildCatalogPrompt generates a rich, dynamic catalog representation from the database products.
+func BuildCatalogPrompt(products []models.Product) string {
+	if len(products) == 0 {
+		return "Catalog unavailable."
+	}
 
-WARBA BANK SHARIAH-COMPLIANT PRODUCT CATALOG:
+	var sb strings.Builder
+	for _, p := range products {
+		amountStr := fmt.Sprintf("KWD %s – %s", formatAmount(p.MinAmountKWD), formatAmount(p.MaxAmountKWD))
+		if p.MinAmountKWD == 0 && p.MaxAmountKWD == 0 {
+			amountStr = "Custom / Fee-based"
+		}
 
-[prod-001] Commodity Murabaha — Working Capital Finance
-  Category: Working Capital | Structure: Murabaha (cost-plus sale)
-  For: Operating expenses, cash flow needs, short-term liquidity
-  Amount: KWD 50,000 – 10,000,000 | Tenure: 3–12 months
-  Industries: All
+		sb.WriteString(fmt.Sprintf("[%s] %s", p.ID, p.Name))
+		if p.NameAr != "" {
+			sb.WriteString(fmt.Sprintf(" (%s)", p.NameAr))
+		}
+		sb.WriteString(fmt.Sprintf("\n  Category: %s | Structure: %s\n", p.Category, p.ShariahStructure))
+		sb.WriteString(fmt.Sprintf("  Facility Range: %s | Tenure: %d months\n", amountStr, p.TypicalTenureMonths))
+		if p.TargetIndustries != "" {
+			sb.WriteString(fmt.Sprintf("  Target Industries: %s\n", p.TargetIndustries))
+		}
+		sb.WriteString(fmt.Sprintf("  Use Case: %s\n\n", p.Description))
+	}
+	return sb.String()
+}
 
-[prod-002] Forward Murabaha — Asset Financing
-  Category: Asset Finance | Structure: Murabaha (deferred sale)
-  For: Purchase of machinery, equipment, production lines, vehicles, land
-  Amount: KWD 100,000 – 25,000,000 | Tenure: 12–60 months
-  Industries: Manufacturing, Construction, Oil & Gas, Industrial
+// BuildSystemPrompt creates the system prompt incorporating the live Shariah product catalog.
+func BuildSystemPrompt(catalogPrompt string) string {
+	return fmt.Sprintf(`You are the Senior Corporate Banking Credit & Structuring AI Advisor for Warba Bank, Kuwait's leading Islamic corporate bank.
+Your mandate is to analyze corporate client portfolios and formulate proactive, highly specific, deal-ready product suggestions for Relationship Managers (RMs).
 
-[prod-003] Real Estate Ijara — Property Financing
-  Category: Real Estate | Structure: Ijara Muntahia Bittamleek (lease-to-own)
-  For: Commercial property purchase, office space, warehouses, development projects
-  Amount: KWD 500,000 – 50,000,000 | Tenure: 36–120 months
-  Industries: Real Estate, Hospitality, Retail, All
+CRITICAL DIRECTIVES:
+1. PRODUCT SELECTION: You MUST ONLY select product_id values from the active catalog below. Use the exact product_id string (e.g. "prod-murabaha-wc", "prod-ijara-mb", "prod-trade-lc", "prod-trade-lg", "prod-project-istisna", "prod-pos-finance", "prod-treasury-wakala", "prod-fx-waad", "prod-syndication", "prod-payroll-wps", "prod-receivable-factoring").
+2. NEVER suggest conventional (interest-bearing / non-Islamic) banking mechanisms under any circumstances.
+3. ANTI-GENERIC MANDATE: Generic advice (e.g. "client needs money for growth" or "helps improve cash flow") is UNACCEPTABLE. Every recommendation MUST cite:
+   - Specific quantitative and qualitative signals from the client's profile (e.g., specific revenue size, employee headcount, recent tender bids, supplier import corridors, FX currency risks).
+   - Executive names and dates from interaction history when available.
+   - Proposed deal size (KWD) appropriate to the client's revenue and product limits.
+4. ACTIONABLE NEXT STEPS: Suggest concrete, immediate RM actions (e.g. "Schedule term sheet review with CFO Tariq Al-Ghanim proposing KWD 2.5M 3-year Ijara facility with 15%% advance payment guarantee").
+5. SHARIAH GOVERNANCE: Detail the exact Islamic structure (e.g., AAOIFI Standard No. 9 for Ijara Muntahia Bittamleek, unilateral binding Wa'ad for FX hedging, Kafalah fee rules, Parallel Istisna'a milestone billing).
+6. HOLDINGS EXCLUSION: Do NOT recommend products the client already actively holds unless there is a clear expansion/upsell trigger highlighted in recent interactions.
+7. Return between 1 and 3 high-conviction opportunities.
 
-[prod-004] Industrial Plot Ijara — Land Financing
-  Category: Real Estate | Structure: Ijara (usufruct lease)
-  For: Industrial land leased from the state, factory plots
-  Amount: KWD 200,000 – 15,000,000 | Tenure: 24–60 months
-  Industries: Manufacturing, Industrial, Oil & Gas, Logistics
+WARBA BANK ACTIVE SHARIAH PRODUCT CATALOG:
+%s`, catalogPrompt)
+}
 
-[prod-005] Documentary Letter of Credit (LC)
-  Category: Trade Finance | Structure: Wakala (agency)
-  For: Import/export transactions, international trade settlement
-  Amount: KWD 25,000 – 20,000,000 | Tenure: 1–12 months
-  Industries: Trading, Manufacturing, Food & Beverage, All
+// ClientAnalysisPromptTemplate formats the analysis prompt with deep client signals.
+const ClientAnalysisPromptTemplate = `Analyze the following corporate client profile and formulate up to 3 proactive, high-conviction product opportunities from Warba Bank's catalog.
 
-[prod-006] Letter of Guarantee (LG)
-  Category: Trade Finance | Structure: Kafalah (guarantee)
-  For: Bid bonds, performance guarantees, advance payment guarantees
-  Amount: KWD 10,000 – 30,000,000 | Tenure: 3–24 months
-  Industries: Construction, Oil & Gas, Government Contracting, All
+=== CLIENT DOSSIER ===
+• Company: %s (%s)
+• Industry: %s | Sub-Industry: %s | Country: %s
+• Annual Revenue: KWD %s | Workforce: %d employees | Established: %d
+• Risk Rating: %s | KYC Status: %s | Client Relationship Since: %s
+• Account Overview & Strategic Notes: %s
 
-[prod-007] Syndication Finance
-  Category: Structured Finance | Structure: Musharakah/Murabaha (participatory)
-  For: Large-scale project financing, infrastructure, mega-projects
-  Amount: KWD 5,000,000 – 100,000,000+ | Tenure: 36–120 months
-  Industries: Oil & Gas, Real Estate, Infrastructure, Telecom
-
-[prod-008] Corporate Wakala Deposit
-  Category: Treasury | Structure: Wakala (agency investment)
-  For: Short-term surplus fund placement, treasury management
-  Amount: KWD 100,000 – 50,000,000 | Tenure: 1–12 months
-  Industries: All
-
-[prod-009] Mudaraba Investment Account
-  Category: Investment | Structure: Mudaraba (profit-sharing)
-  For: Medium-term investment, profit-sharing arrangement
-  Amount: KWD 250,000 – 25,000,000 | Tenure: 6–36 months
-  Industries: All
-
-[prod-010] Invoice Discounting (Bai Al-Dayn)
-  Category: Receivables Finance | Structure: Bai Al-Dayn (sale of debt)
-  For: Accelerating receivables collection, improving cash flow
-  Amount: KWD 50,000 – 5,000,000 | Tenure: 1–6 months
-  Industries: Trading, Manufacturing, Services, Construction
-`
-
-// ClientAnalysisPromptTemplate is the prompt sent for individual client analysis.
-const ClientAnalysisPromptTemplate = `Analyze the following corporate client profile and identify the top proactive product opportunities from Warba Bank's catalog.
-
-CLIENT PROFILE:
-- Company: %s
-- Industry: %s | Sub-Industry: %s
-- Revenue: KWD %s | Employees: %d
-- Incorporated: %d | Country: %s
-- Risk Rating: %s | KYC Status: %s
-- Relationship Since: %s
-
-CURRENT PRODUCT HOLDINGS:
+=== CURRENT PRODUCT HOLDINGS ===
 %s
 
-RECENT INTERACTION HISTORY:
+=== RECENT INTERACTION TIMELINE & SIGNALS ===
 %s
 
-ADDITIONAL NOTES:
+=== UNMET PRODUCT CATEGORIES (GAP ANALYSIS) ===
 %s
 
 TASK:
-Based on this client's profile, financial indicators, industry positioning, current product holdings, and interaction history:
-1. Identify up to 3 product opportunities from the catalog that this client does NOT currently hold (or where there is a clear upsell/renewal opportunity).
-2. For each opportunity, explain WHY this specific client would benefit, citing concrete signals from their profile.
-3. Suggest what the RM should do next.
+1. Synthesize the client's financial profile, expansion needs, supplier/contractor dynamics, and recent meeting outcomes.
+2. Select the top 1 to 3 distinct products from the catalog that best match this client's immediate operational or capital needs.
+3. For each opportunity, provide deep, specific, non-generic reasoning tying their financial metrics and meeting notes directly to the product structure.
 
-Respond with ONLY a JSON array (no markdown, no explanation outside the JSON):
+Respond with ONLY a valid JSON array of objects (no markdown outside the JSON, no extra text):
 [
   {
-    "product_id": "prod-XXX",
-    "confidence": 0.85,
-    "urgency": "High",
-    "reasoning": "Specific reasoning tied to client signals...",
-    "next_action": "Concrete action the RM should take...",
-    "shariah_notes": "How this product structure complies with Islamic finance for this client..."
+    "product_id": "prod-exact-id",
+    "confidence": 0.88,
+    "urgency": "Critical|High|Medium|Low",
+    "reasoning": "Deep, client-specific reasoning citing actual financial metrics, project names, or meeting notes...",
+    "next_action": "Concrete, step-by-step next action for the Relationship Manager including proposed facility size...",
+    "shariah_notes": "Specific Islamic finance structuring compliance and AAOIFI standards rationale..."
   }
 ]`
 
-// FormatClientAnalysisPrompt formats the analysis prompt with client data.
+// FormatClientAnalysisPrompt formats the prompt with client data and computed holding gaps.
 func FormatClientAnalysisPrompt(
-	name, industry, subIndustry, revenue string,
+	name, nameAr, industry, subIndustry, revenue string,
 	employees, incorporationYear int,
-	country, riskRating, kycStatus, relationshipStart string,
-	currentProducts, interactions, notes string,
+	country, riskRating, kycStatus, relationshipStart, notes string,
+	currentProducts, interactions, holdingGaps string,
 ) string {
+	if nameAr == "" {
+		nameAr = "N/A"
+	}
+	if notes == "" {
+		notes = "Standard corporate relationship in good standing."
+	}
+	if currentProducts == "" {
+		currentProducts = "None — No active credit or treasury facilities currently held."
+	}
+	if interactions == "" {
+		interactions = "No recent interaction logs recorded. Base assessment on corporate profile, industry dynamics, and revenue scale."
+	}
+	if holdingGaps == "" {
+		holdingGaps = "Full product suite available for cross-selling."
+	}
+
 	return fmt.Sprintf(
 		ClientAnalysisPromptTemplate,
-		name, industry, subIndustry, revenue, employees,
-		incorporationYear, country, riskRating, kycStatus,
-		relationshipStart, currentProducts, interactions, notes,
+		name, nameAr, industry, subIndustry, country,
+		revenue, employees, incorporationYear,
+		riskRating, kycStatus, relationshipStart, notes,
+		currentProducts, interactions, holdingGaps,
 	)
 }
 
-// PortfolioScanPrompt is used when scanning the entire portfolio.
-const PortfolioScanPrompt = `You are scanning a Relationship Manager's entire client portfolio to identify the highest-priority proactive opportunities across all clients.
+// PortfolioScanPromptTemplate formats the prompt for scanning across all clients.
+const PortfolioScanPromptTemplate = `You are scanning a Senior Relationship Manager's entire corporate client portfolio to identify the top 5 highest-priority proactive deal opportunities across all clients.
 
-PORTFOLIO CLIENTS:
+=== CLIENT PORTFOLIO OVERVIEW ===
 %s
 
 TASK:
-For each client in the portfolio, identify the single most impactful product opportunity. Prioritize by:
-1. Revenue potential for Warba Bank
-2. Urgency (time-sensitive signals like contract renewals, expansion plans, cash flow needs)
-3. Confidence in the recommendation
+1. Scan across the entire portfolio for high-impact opportunities (e.g. major contract tenders, expansion funding, import trade finance, FX hedging, or liquidity placement).
+2. Rank and return the top 5 highest-value opportunities across the portfolio.
+3. Ensure every recommendation references the exact client_id, the exact product_id from the catalog, and provides rich, client-specific reasoning.
 
-Return the top 5 opportunities across the portfolio, ranked by priority.
-
-Respond with ONLY a JSON array (no markdown):
+Respond with ONLY a valid JSON array:
 [
   {
-    "client_id": "...",
-    "product_id": "prod-XXX",
-    "confidence": 0.85,
+    "client_id": "cli-xxx-xxx",
+    "product_id": "prod-exact-id",
+    "confidence": 0.90,
     "urgency": "High",
-    "reasoning": "Why this is the top priority...",
-    "next_action": "What the RM should do...",
-    "shariah_notes": "Shariah compliance notes..."
+    "reasoning": "Client-specific justification citing their industry, revenue, and recent context...",
+    "next_action": "Targeted RM next steps with proposed deal parameters...",
+    "shariah_notes": "Islamic structure and Shariah compliance notes..."
   }
 ]`
 
