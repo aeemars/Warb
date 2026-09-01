@@ -8,7 +8,7 @@
 # Compiled Binaries and Output
 bin/
 dist/
-server
+/server
 *.exe
 *.exe~
 *.dll
