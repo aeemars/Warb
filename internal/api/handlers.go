@@ -271,6 +271,8 @@ func (h *Handlers) handleListClients(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	_ = h.store.SyncMissingClientDetails(user.ID, user.Name)
+
 	clients, err := h.store.ListClients(user.ID)
 	if err != nil {
 		h.serverError(w, "Failed to list clients", err)
@@ -306,6 +308,8 @@ func (h *Handlers) handleClientRoutes(w http.ResponseWriter, r *http.Request) {
 		h.methodNotAllowed(w)
 		return
 	}
+
+	_ = h.store.SyncMissingClientDetails(user.ID, user.Name)
 
 	client, err := h.store.GetClient(user.ID, clientID)
 	if err != nil {

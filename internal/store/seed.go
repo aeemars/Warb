@@ -24,6 +24,44 @@ func (s *Store) SeedGlobalProducts() error {
 
 // SeedUserPortfolio initializes a full corporate banking portfolio of 20 clients, holdings, interactions,
 // and sample opportunities for a specific authenticated user (RM).
+// SyncMissingClientDetails ensures all 20 clients for the user have their rich holdings and interaction history populated.
+func (s *Store) SyncMissingClientDetails(userID, userName string) error {
+	if userID == "" {
+		return nil
+	}
+
+	for i := range seedClients {
+		cID := fmt.Sprintf("cli-%s-%03d", userID, i+1)
+
+		// 1. Backfill product holdings if empty
+		var prodCount int
+		_ = s.db.QueryRow("SELECT COUNT(*) FROM client_products WHERE client_id = ?", cID).Scan(&prodCount)
+		if prodCount == 0 {
+			if holdings, ok := seedClientProductsTemplate[i]; ok {
+				for _, cp := range holdings {
+					cp.ClientID = cID
+					_ = s.InsertClientProduct(cp)
+				}
+			}
+		}
+
+		// 2. Backfill interaction history if empty
+		var intCount int
+		_ = s.db.QueryRow("SELECT COUNT(*) FROM interactions WHERE client_id = ? AND user_id = ?", cID, userID).Scan(&intCount)
+		if intCount == 0 {
+			if interactions, ok := seedInteractionsTemplate[i]; ok {
+				for j, ix := range interactions {
+					ix.ID = fmt.Sprintf("ix-%s-%03d-%d", userID, i+1, j+1)
+					ix.ClientID = cID
+					ix.UserID = userID
+					_ = s.InsertInteraction(ix)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func (s *Store) SeedUserPortfolio(userID, userName string) error {
 	if userID == "" {
 		return fmt.Errorf("cannot seed portfolio without valid userID")
@@ -319,14 +357,62 @@ var seedClientProductsTemplate = map[int][]models.ClientProduct{
 	7: {
 		{ProductID: "prod-trade-lc", StartDate: "2023-05-01", AmountKWD: 1200000, Status: "Active"},
 		{ProductID: "prod-murabaha-wc", StartDate: "2024-01-15", AmountKWD: 750000, Status: "Active"},
+		{ProductID: "prod-payroll-wps", StartDate: "2020-03-01", AmountKWD: 0, Status: "Active"},
 	},
 	8: {
 		{ProductID: "prod-murabaha-wc", StartDate: "2022-09-01", AmountKWD: 500000, Status: "Active"},
+		{ProductID: "prod-payroll-wps", StartDate: "2021-01-01", AmountKWD: 0, Status: "Active"},
 	},
 	9: {
 		{ProductID: "prod-trade-lc", StartDate: "2023-03-01", AmountKWD: 4000000, Status: "Active"},
 		{ProductID: "prod-trade-lg", StartDate: "2023-08-15", AmountKWD: 1000000, Status: "Active"},
 		{ProductID: "prod-fx-waad", StartDate: "2024-01-01", AmountKWD: 2500000, Status: "Active"},
+	},
+	10: {
+		{ProductID: "prod-treasury-wakala", StartDate: "2022-10-01", AmountKWD: 12000000, Status: "Active"},
+		{ProductID: "prod-project-istisna", StartDate: "2023-05-15", AmountKWD: 5000000, Status: "Active"},
+	},
+	11: {
+		{ProductID: "prod-trade-lg", StartDate: "2023-07-01", AmountKWD: 1800000, Status: "Active"},
+		{ProductID: "prod-murabaha-wc", StartDate: "2024-02-01", AmountKWD: 600000, Status: "Active"},
+		{ProductID: "prod-payroll-wps", StartDate: "2021-06-01", AmountKWD: 0, Status: "Active"},
+	},
+	12: {
+		{ProductID: "prod-murabaha-wc", StartDate: "2022-04-10", AmountKWD: 6000000, Status: "Active"},
+		{ProductID: "prod-ijara-mb", StartDate: "2021-09-01", AmountKWD: 8500000, Status: "Active"},
+		{ProductID: "prod-treasury-wakala", StartDate: "2023-11-15", AmountKWD: 4000000, Status: "Active"},
+	},
+	13: {
+		{ProductID: "prod-ijara-mb", StartDate: "2020-02-01", AmountKWD: 7000000, Status: "Active"},
+		{ProductID: "prod-pos-finance", StartDate: "2023-04-01", AmountKWD: 450000, Status: "Active"},
+		{ProductID: "prod-payroll-wps", StartDate: "2019-01-01", AmountKWD: 0, Status: "Active"},
+	},
+	14: {
+		{ProductID: "prod-trade-lc", StartDate: "2023-06-15", AmountKWD: 5000000, Status: "Active"},
+		{ProductID: "prod-murabaha-wc", StartDate: "2024-01-10", AmountKWD: 3500000, Status: "Active"},
+		{ProductID: "prod-fx-waad", StartDate: "2023-08-01", AmountKWD: 3000000, Status: "Active"},
+	},
+	15: {
+		{ProductID: "prod-trade-lc", StartDate: "2023-09-01", AmountKWD: 850000, Status: "Active"},
+		{ProductID: "prod-murabaha-wc", StartDate: "2024-03-01", AmountKWD: 600000, Status: "Active"},
+	},
+	16: {
+		{ProductID: "prod-pos-finance", StartDate: "2022-11-01", AmountKWD: 800000, Status: "Active"},
+		{ProductID: "prod-payroll-wps", StartDate: "2018-05-01", AmountKWD: 0, Status: "Active"},
+		{ProductID: "prod-murabaha-wc", StartDate: "2023-07-15", AmountKWD: 1200000, Status: "Active"},
+	},
+	17: {
+		{ProductID: "prod-trade-lc", StartDate: "2023-08-20", AmountKWD: 900000, Status: "Active"},
+		{ProductID: "prod-murabaha-wc", StartDate: "2024-01-05", AmountKWD: 500000, Status: "Active"},
+	},
+	18: {
+		{ProductID: "prod-murabaha-wc", StartDate: "2023-02-10", AmountKWD: 400000, Status: "Active"},
+		{ProductID: "prod-payroll-wps", StartDate: "2022-01-01", AmountKWD: 0, Status: "Active"},
+	},
+	19: {
+		{ProductID: "prod-murabaha-wc", StartDate: "2022-08-15", AmountKWD: 1500000, Status: "Active"},
+		{ProductID: "prod-trade-lg", StartDate: "2023-10-01", AmountKWD: 800000, Status: "Active"},
+		{ProductID: "prod-trade-lc", StartDate: "2024-02-01", AmountKWD: 1000000, Status: "Active"},
 	},
 }
 
@@ -337,16 +423,99 @@ var seedInteractionsTemplate = map[int][]models.Interaction{
 		{Type: "Email", Date: "2026-08-10", Summary: "Sent preliminary term sheet for Ijara facility.", Outcome: "CFO reviewing pricing and Shariah structure."},
 	},
 	1: {
-		{Type: "Meeting", Date: "2026-05-20", Summary: "Site visit at Burj Al Kuwait site with Managing Director.", Outcome: "Phase 1 is 85% leased. Phase 2 foundation work begins in October. Budget KWD 12M."},
-		{Type: "Call", Date: "2026-07-18", Summary: "Discussion on Phase 2 financing structure.", Outcome: "Client prefers Istisna'a structure over conventional bridge loan."},
+		{Type: "Meeting", Date: "2026-05-20", Summary: "Site visit at Burj Al Kuwait site with Managing Director Nawaf Al-Humaidhi.", Outcome: "Phase 1 is 85% leased. Phase 2 foundation work begins in October. Budget KWD 12M."},
+		{Type: "Call", Date: "2026-07-18", Summary: "Discussion on Phase 2 financing structure with Investment Director.", Outcome: "Client prefers Istisna'a structure over conventional bridge loan."},
+		{Type: "Meeting", Date: "2026-08-14", Summary: "Presentation of Parallel Istisna'a term sheet for KWD 10M facility.", Outcome: "Board approved in principle, seeking final Shariah board concurrence."},
 	},
 	2: {
 		{Type: "Call", Date: "2026-06-28", Summary: "Discussed supply chain disruptions from Asia. Shipping times increased 3 weeks.", Outcome: "Needs additional working capital buffer for inventory holding."},
-		{Type: "Meeting", Date: "2026-08-05", Summary: "Reviewed FX exposure. Majority of imports in USD and CNY.", Outcome: "Client interested in FX Wa'ad hedging to lock in rates."},
+		{Type: "Meeting", Date: "2026-08-05", Summary: "Reviewed FX exposure with Finance Manager Reem Al-Sabah. Majority of imports in USD and CNY.", Outcome: "Client interested in FX Wa'ad hedging to lock in rates."},
+		{Type: "Email", Date: "2026-08-22", Summary: "Provided treasury indicative pricing for USD/KWD 6-month Islamic forward cover.", Outcome: "Client scheduled treasury structuring workshop."},
 	},
 	3: {
-		{Type: "Meeting", Date: "2026-07-10", Summary: "Meeting with CEO regarding KWD 25M Highway contract award.", Outcome: "Requires KWD 2.5M performance bond, KWD 3.75M advance payment guarantee."},
+		{Type: "Meeting", Date: "2026-07-10", Summary: "Meeting with CEO Eng. Bader Al-Kharafi regarding KWD 25M Highway contract award.", Outcome: "Requires KWD 2.5M performance bond, KWD 3.75M advance payment guarantee."},
 		{Type: "Note", Date: "2026-07-25", Summary: "Client credit assessment updated: excellent track record with Ministry of Public Works.", Outcome: "Recommend full support on LG package."},
+		{Type: "Call", Date: "2026-08-18", Summary: "Follow-up on advance payment release from Ministry.", Outcome: "Ministry disbursed initial mobilization funds into Warba escrow account."},
+	},
+	4: {
+		{Type: "Meeting", Date: "2026-06-05", Summary: "Met with Founder & CTO Faisal Al-Qatami at Al-Hamra Tower office.", Outcome: "Company won government cloud digitization tender valued at KWD 4.2M over 3 years."},
+		{Type: "Call", Date: "2026-07-20", Summary: "Discussed working capital requirements for hiring 40 specialized software engineers.", Outcome: "Proposed Murabaha working capital facility tied to government milestone invoices."},
+		{Type: "Email", Date: "2026-08-12", Summary: "Sent documentation requirements for invoice factoring under Bai Al-Dayn structure.", Outcome: "CFO preparing audited financials and government contract copy."},
+	},
+	5: {
+		{Type: "Meeting", Date: "2026-05-12", Summary: "Strategic review with Dr. Abdullah Al-Sanad regarding new 200-bed private hospital in Hawally.", Outcome: "Total project cost KWD 18M; seeking KWD 10M long-term Islamic syndication."},
+		{Type: "Site Visit", Date: "2026-06-25", Summary: "Inspected Hawally land plot and medical equipment procurement plans from Siemens Healthineers.", Outcome: "Equipment portion estimated at KWD 3.5M suitable for Medical Ijara facility."},
+		{Type: "Call", Date: "2026-08-02", Summary: "Updated credit committee recommendations on hospital construction milestones.", Outcome: "Term sheet drafted for joint Syndicated Ijara with local consortium."},
+	},
+	6: {
+		{Type: "Meeting", Date: "2026-06-18", Summary: "Annual fleet review with Fleet Director Captain Jassim Al-Otaibi.", Outcome: "Client expanding cargo fleet with 3 new container vessels for East Africa routes."},
+		{Type: "Call", Date: "2026-07-30", Summary: "Evaluated maritime mortgage legalities and Shariah Takaful requirements with Marine Underwriting.", Outcome: "Structure finalized as Marine Ijara Muntahia Bittamleek."},
+		{Type: "Email", Date: "2026-08-15", Summary: "Forwarded term sheet for KWD 7.5M vessel acquisition facility.", Outcome: "Board meeting scheduled for final approval in September."},
+	},
+	7: {
+		{Type: "Meeting", Date: "2026-05-30", Summary: "Production line visit at Subhan Industrial Area with COO Mansour Al-Enezi.", Outcome: "Client launching new dairy processing line to expand export capacity to Saudi Arabia."},
+		{Type: "Call", Date: "2026-07-12", Summary: "Reviewed raw milk and packaging import letters of credit from New Zealand and Denmark.", Outcome: "Client requested LC limit enhancement from KWD 1.2M to KWD 2.5M."},
+		{Type: "Note", Date: "2026-08-08", Summary: "Credit analysis showed 22% YoY sales growth and healthy debt service coverage ratio of 2.8x.", Outcome: "Credit committee approved LC expansion and FX Wa'ad line."},
+	},
+	8: {
+		{Type: "Meeting", Date: "2026-06-22", Summary: "Meeting with CEO Eng. Khaled Al-Mutawa on Shagaya Renewable Energy Phase 2 tender.", Outcome: "Client shortlisted for 50MW solar installation with Ministry of Electricity & Water."},
+		{Type: "Site Visit", Date: "2026-07-15", Summary: "Inspected solar panel manufacturing facility in Shuaiba Industrial Zone.", Outcome: "Factory operating at 90% capacity; requires KWD 2M equipment Ijara for automated assembly lines."},
+		{Type: "Call", Date: "2026-08-19", Summary: "Reviewed Ministry performance bond requirements (KWD 1.2M).", Outcome: "Preparing Kafalah guarantee package with reduced cash margin."},
+	},
+	9: {
+		{Type: "Meeting", Date: "2026-06-10", Summary: "Quarterly dealer review with General Manager Waleed Al-Ghanim.", Outcome: "2027 model year vehicle imports starting in September; projected USD 18M letters of credit."},
+		{Type: "Call", Date: "2026-07-28", Summary: "Discussed consumer showroom expansion in Shuwaikh and Jahra.", Outcome: "Client seeking KWD 3M commercial real estate Ijara for new flagship showroom."},
+		{Type: "Email", Date: "2026-08-11", Summary: "Sent proposal for Point-of-Sale (POS) merchant finance and automotive inventory Murabaha.", Outcome: "CFO requested formal credit submission."},
+	},
+	10: {
+		{Type: "Meeting", Date: "2026-06-01", Summary: "Portfolio review with Chief Investment Officer Sheikha Dana Al-Sabah.", Outcome: "Holding company holding KWD 15M surplus cash from recent asset exit; seeking competitive Shariah yields."},
+		{Type: "Call", Date: "2026-07-14", Summary: "Presented Warba Custom Wakala 6-month placement with expected profit rate of 4.65% p.a.", Outcome: "Client executed KWD 8M Wakala contract."},
+		{Type: "Meeting", Date: "2026-08-20", Summary: "Discussion on co-underwriting upcoming regional Islamic infrastructure Sukuk.", Outcome: "Warba Capital Markets team engaged for club participation."},
+	},
+	11: {
+		{Type: "Meeting", Date: "2026-06-20", Summary: "Project review with Managing Partner Eng. Zaid Al-Failakawi.", Outcome: "Bidding on KWD 8.5M Farwaniya Hospital MEP expansion package."},
+		{Type: "Call", Date: "2026-07-16", Summary: "Tender bid submission confirmed; client requires KWD 850K bid bond guarantee.", Outcome: "Warba issued Kafalah LG with same-day turnaround."},
+		{Type: "Email", Date: "2026-08-17", Summary: "Sent terms for project-specific supply chain Murabaha for Japanese Daikin HVAC chillers.", Outcome: "Client confirmed acceptance pending tender award."},
+	},
+	12: {
+		{Type: "Meeting", Date: "2026-05-18", Summary: "Plant tour at Shuaiba Industrial Plant with Managing Director Sulaiman Al-Bahar.", Outcome: "Major kiln modernization project budgeted at KWD 14M to reduce energy consumption by 20%."},
+		{Type: "Call", Date: "2026-07-08", Summary: "Discussed cross-border export receivables from Iraq and Saudi Arabia.", Outcome: "Client interested in Islamic invoice discounting to accelerate export cash flow."},
+		{Type: "Meeting", Date: "2026-08-16", Summary: "Presentation of KWD 10M syndicated plant upgrade facility with Warba as Lead Arranger.", Outcome: "Term sheet submitted to Board of Directors for approval."},
+	},
+	13: {
+		{Type: "Meeting", Date: "2026-06-12", Summary: "Strategic meeting with Group Hospitality Director Pierre Haddad.", Outcome: "Occupancy across Kuwait City hotels reached 82%; planning boutique beach resort in Khiran."},
+		{Type: "Call", Date: "2026-07-22", Summary: "Reviewed resort construction budget (KWD 9.5M) and master development agreement.", Outcome: "Proposed Istisna'a construction facility with 7-year post-completion Ijara takeout."},
+		{Type: "Email", Date: "2026-08-14", Summary: "Shared merchant POS terminal upgrade with unified corporate treasury pooling.", Outcome: "Client agreed to migrate all hotel payment gateways to Warba Merchant Suite."},
+	},
+	14: {
+		{Type: "Meeting", Date: "2026-05-25", Summary: "Executive meeting with CEO Dr. Nabil Al-Awadi in Ahmadi.", Outcome: "Ethylene glycol production expanding 35%; secured 5-year supply contract with Asian buyers."},
+		{Type: "Call", Date: "2026-07-19", Summary: "Reviewed raw feedstock purchase LCs and USD currency exposure.", Outcome: "Executed 90-day FX Wa'ad hedging line for USD 12M raw material shipments."},
+		{Type: "Note", Date: "2026-08-21", Summary: "Credit review highlighted zero covenant breaches and strong cash flow from operations.", Outcome: "Recommended increasing overall credit umbrella to KWD 15M."},
+	},
+	15: {
+		{Type: "Meeting", Date: "2026-06-08", Summary: "KYC & compliance meeting with Managing Director Dr. Salwa Al-Kandari.", Outcome: "Completed annual KYC remediation; submitted updated Ministry of Health manufacturing licenses."},
+		{Type: "Call", Date: "2026-07-15", Summary: "Discussed API (Active Pharmaceutical Ingredients) import shipments from Hyderabad.", Outcome: "Client requested 180-day deferred payment Murabaha for antibiotic raw materials."},
+		{Type: "Email", Date: "2026-08-18", Summary: "Sent preliminary approval for KWD 1.2M import facility with competitive Murabaha margin.", Outcome: "Client signed acceptance letter."},
+	},
+	16: {
+		{Type: "Meeting", Date: "2026-06-16", Summary: "Mall management review with Commercial Director Fahad Al-Marzouq.", Outcome: "Planning KWD 4.5M retail center expansion in Egaila with 35 new tenant units."},
+		{Type: "Call", Date: "2026-07-26", Summary: "Discussed tenant lease receivables collection and digital payment automation.", Outcome: "Recommended Warba E-Commerce Payment Gateway and tenant factoring facility."},
+		{Type: "Meeting", Date: "2026-08-23", Summary: "Term sheet presentation for KWD 3.5M Expansion Ijara.", Outcome: "Client legal counsel reviewing Shariah lease terms."},
+	},
+	17: {
+		{Type: "Call", Date: "2026-06-30", Summary: "Discussion with Procurement Director Ahmad Al-Onaizi regarding grain imports from Turkey.", Outcome: "Seasonal grain shipments peaking in Q3; requested KWD 750K short-term Murabaha."},
+		{Type: "Meeting", Date: "2026-07-24", Summary: "Reviewed cold storage warehouse expansion in Sulaibiya (budget KWD 1.8M).", Outcome: "Recommended Industrial Plot Ijara for state-leased land plot."},
+		{Type: "Email", Date: "2026-08-19", Summary: "Sent indicative term sheet for cold storage facility financing.", Outcome: "Client preparing engineering drawings and municipality permits."},
+	},
+	18: {
+		{Type: "Meeting", Date: "2026-06-14", Summary: "Factory visit with Founder & GM Yousef Al-Roudhan in Sabhan.", Outcome: "Purchasing new Heidelberg 8-color printing press from Germany valued at EUR 1.5M."},
+		{Type: "Call", Date: "2026-07-17", Summary: "Discussed equipment import LC and EUR currency volatility.", Outcome: "Proposed combined Import LC + 5-year Equipment Ijara facility with Euro FX Wa'ad cover."},
+		{Type: "Email", Date: "2026-08-12", Summary: "Provided documentation checklist for German export credit agency (ECA) backed structure.", Outcome: "CFO submitting machinery pro-forma invoices."},
+	},
+	19: {
+		{Type: "Meeting", Date: "2026-06-25", Summary: "Strategy session with CEO Eng. Hamad Al-Ghanim on steel fabrication contracts.", Outcome: "Awarded KWD 6.5M structural steel package for new Kuwait International Airport cargo terminal."},
+		{Type: "Call", Date: "2026-07-29", Summary: "Reviewed raw steel coil import prices and USD hedging requirements.", Outcome: "Client requested KWD 2M revolving Murabaha for Turkish and Indian steel procurement."},
+		{Type: "Meeting", Date: "2026-08-22", Summary: "Presented combined Trade Finance umbrella (KWD 3.5M LC/LG/Murabaha).", Outcome: "Credit facility approved by Warba Corporate Credit Committee."},
 	},
 }
 
