@@ -4,9 +4,7 @@
 # ============================================
 
 # Stage 1: Build the Go binary
-FROM golang:1.25-alpine AS builder
-
-RUN apk add --no-cache gcc musl-dev
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
@@ -15,8 +13,9 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 # Copy source and build
+# CGO_ENABLED=0: modernc.org/sqlite is pure-Go, no CGO needed
 COPY . .
-RUN CGO_ENABLED=1 GOOS=linux go build -o /app/server ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/server ./cmd/server
 
 # Stage 2: Minimal runtime image
 FROM alpine:3.20
