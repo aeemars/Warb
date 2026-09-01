@@ -4,7 +4,7 @@
 # ============================================
 
 # Stage 1: Build the Go binary
-FROM golang:1.24-alpine AS builder
+FROM golang:alpine AS builder
 
 WORKDIR /app
 
@@ -12,17 +12,17 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy source and build
-# CGO_ENABLED=0: modernc.org/sqlite is pure-Go, no CGO needed
+# Copy source and build pure-Go static binary
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o /app/server ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/server ./cmd/server
 
 # Stage 2: Minimal runtime image
-FROM alpine:3.20
-
-RUN apk add --no-cache ca-certificates tzdata
+FROM alpine:latest
 
 WORKDIR /app
+
+# Copy root SSL certs from builder stage (no apk network call needed)
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
 # Copy binary and static frontend assets
 COPY --from=builder /app/server .
