@@ -376,6 +376,7 @@
             showToast('Logout failed: ' + err.message, 'error');
         }
     }
+    window.handleLogout = handleLogout;
 
     function updateUserUI() {
         const u = state.currentUser;
@@ -953,19 +954,19 @@
         let actionButtons = '';
         if (opp.status === 'New') {
             actionButtons = `
-                <button class="btn btn-sm btn-success" onclick="updateOppStatus('${opp.id}', 'Accepted', this)">✓ Accept</button>
-                <button class="btn btn-sm btn-secondary" onclick="updateOppStatus('${opp.id}', 'Reviewed', this)">Mark Reviewed</button>
-                <button class="btn btn-sm btn-danger" onclick="updateOppStatus('${opp.id}', 'Dismissed', this)">✕ Dismiss</button>
+                <button class="btn btn-sm btn-success" data-opp-action="true" data-opp-id="${opp.id}" data-opp-status="Accepted" onclick="updateOppStatus('${opp.id}', 'Accepted', this)">✓ Accept</button>
+                <button class="btn btn-sm btn-secondary" data-opp-action="true" data-opp-id="${opp.id}" data-opp-status="Reviewed" onclick="updateOppStatus('${opp.id}', 'Reviewed', this)">Mark Reviewed</button>
+                <button class="btn btn-sm btn-danger" data-opp-action="true" data-opp-id="${opp.id}" data-opp-status="Dismissed" onclick="updateOppStatus('${opp.id}', 'Dismissed', this)">✕ Dismiss</button>
             `;
         } else if (opp.status === 'Accepted') {
             actionButtons = `
-                <button class="btn btn-sm btn-primary" onclick="updateOppStatus('${opp.id}', 'Converted', this)">Mark Converted</button>
-                <button class="btn btn-sm btn-danger" onclick="updateOppStatus('${opp.id}', 'Dismissed', this)">✕ Dismiss</button>
+                <button class="btn btn-sm btn-primary" data-opp-action="true" data-opp-id="${opp.id}" data-opp-status="Converted" onclick="updateOppStatus('${opp.id}', 'Converted', this)">Mark Converted</button>
+                <button class="btn btn-sm btn-danger" data-opp-action="true" data-opp-id="${opp.id}" data-opp-status="Dismissed" onclick="updateOppStatus('${opp.id}', 'Dismissed', this)">✕ Dismiss</button>
             `;
         } else if (opp.status === 'Reviewed') {
             actionButtons = `
-                <button class="btn btn-sm btn-success" onclick="updateOppStatus('${opp.id}', 'Accepted', this)">✓ Accept</button>
-                <button class="btn btn-sm btn-danger" onclick="updateOppStatus('${opp.id}', 'Dismissed', this)">✕ Dismiss</button>
+                <button class="btn btn-sm btn-success" data-opp-action="true" data-opp-id="${opp.id}" data-opp-status="Accepted" onclick="updateOppStatus('${opp.id}', 'Accepted', this)">✓ Accept</button>
+                <button class="btn btn-sm btn-danger" data-opp-action="true" data-opp-id="${opp.id}" data-opp-status="Dismissed" onclick="updateOppStatus('${opp.id}', 'Dismissed', this)">✕ Dismiss</button>
             `;
         }
         return `
@@ -1138,6 +1139,25 @@
             badge.style.display = count > 0 ? 'inline-block' : 'none';
         }
     }
+
+    // --- Global Event Delegation (Guarantees click handling) ---
+    document.addEventListener('click', (e) => {
+        // 1. Client card click -> navigate to client detail
+        const clientCard = e.target.closest('.client-card');
+        if (clientCard && clientCard.dataset.id && !e.target.closest('button, a')) {
+            e.preventDefault();
+            window.location.hash = 'client/' + clientCard.dataset.id;
+            return;
+        }
+
+        // 2. Opportunity action button click -> execute status change
+        const oppBtn = e.target.closest('[data-opp-action]');
+        if (oppBtn && oppBtn.dataset.oppId && oppBtn.dataset.oppStatus) {
+            e.preventDefault();
+            window.updateOppStatus(oppBtn.dataset.oppId, oppBtn.dataset.oppStatus, oppBtn);
+            return;
+        }
+    });
 
     // --- Init ---
     initAuth();

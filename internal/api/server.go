@@ -108,7 +108,7 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'self'; "+
-				"script-src 'self' https://accounts.google.com https://cdn.jsdelivr.net; "+
+				"script-src 'self' 'unsafe-inline' https://accounts.google.com https://cdn.jsdelivr.net; "+
 				"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com; "+
 				"font-src https://fonts.gstatic.com; "+
 				"img-src 'self' https: data:; "+
